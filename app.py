@@ -365,9 +365,9 @@ with lc2:
 AR = LANG == "العربية"
 
 if AR:
-    tab1,tab2,tab3,tab4,tab5,tab6=st.tabs(["🏠 الرئيسية","📊 نظرة عامة","🏭 المناطق","🔬 المحاكاة","👷 العمال","🚨 التنبيهات"])
+    tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab9=st.tabs(["🏠 الرئيسية","📊 نظرة عامة","🏭 المناطق","🔬 المحاكاة","👷 العمال","🚨 التنبيهات","🎯 التنفيذي","🌡️ الإجهاد الحراري"])
 else:
-    tab1,tab2,tab3,tab4,tab5,tab6=st.tabs(["🏠 HOME","📊 OVERVIEW","🏭 ZONES","🔬 SIMULATION","👷 WORKERS","🚨 ALERTS"])
+    tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab9=st.tabs(["🏠 HOME","📊 OVERVIEW","🏭 ZONES","🔬 SIMULATION","👷 WORKERS","🚨 ALERTS","🎯 EXECUTIVE","🌡️ HEAT STRESS"])
 
 # ═══════════════ TAB 1: HOME ═══════════════
 with tab1:
@@ -604,10 +604,10 @@ with tab4:
         mc1, mc2, mc3, mc4 = st.columns(4)
         equip_vals = {}
         input_labels = {
-            "CO2": ("💨 CO₂ Emission", "ppm emitted by equipment"),
-            "HeatIndex": ("🌡️ Heat Output", "heat index generated"),
-            "Noise": ("🔊 Noise Level", "dBA from equipment spec"),
-            "Gas": ("⚗️ Gas Emission", "ppm emitted by equipment"),
+            "CO2": ("💨 CO₂ Emission" if not AR else "💨 انبعاث CO₂", "ppm" if not AR else "جزء بالمليون"),
+            "HeatIndex": ("🌡️ Equipment Temperature" if not AR else "🌡️ درجة حرارة المعدة", "°C" if not AR else "درجة مئوية"),
+            "Noise": ("🔊 Noise Level" if not AR else "🔊 مستوى الضوضاء", "dBA" if not AR else "ديسيبل"),
+            "Gas": ("⚗️ Gas Emission" if not AR else "⚗️ انبعاث الغاز", "ppm" if not AR else "جزء بالمليون"),
         }
         for i, (col, s) in enumerate(zip([mc1, mc2, mc3, mc4], cur_stats)):
             with col:
@@ -625,7 +625,7 @@ with tab4:
                     key=f"eq_{s['HazardType']}",
                     label_visibility="collapsed"
                 )
-                st.markdown(f'<span style="color:{C["text3"]};font-size:11px">Zone now: <strong style="color:{C["text1"]}">{s["CurrentValue"]}</strong> {s["Unit"]} | Limit: {s["Limit"]}</span>', unsafe_allow_html=True)
+                st.markdown(f'<span style="color:{C["text3"]};font-size:11px">{"الحالي" if AR else "Current"}: <strong style="color:{C["text1"]}">{s["CurrentValue"]}</strong> {s["Unit"]} | {"الحد" if AR else "Limit"}: {s["Limit"]}</span>', unsafe_allow_html=True)
 
         # Calculate combined values using correct physics
         def calc_combined(hazard_type, current_val, equip_val):
@@ -657,8 +657,8 @@ with tab4:
 
             return round(current_val + equip_val, 1)
 
-        # Show calculation breakdown
-        st.markdown(f'<div style="color:{C["accent"]};font-size:14px;font-weight:700;margin:16px 0">🔬 Calculation Breakdown:</div>', unsafe_allow_html=True)
+        # Show simple results (formulas hidden internally)
+        st.markdown(f'<div style="color:{C["accent"]};font-size:14px;font-weight:700;margin:16px 0">{"🔬 النتائج المتوقعة:" if AR else "🔬 Expected Results:"}</div>', unsafe_allow_html=True)
         calc_cols = st.columns(4)
         combined_vals = {}
         for i, (col, s) in enumerate(zip(calc_cols, cur_stats)):
@@ -669,19 +669,6 @@ with tab4:
             combined_vals[h] = comb
 
             with col:
-                if h == "Noise" and eq_v > 0:
-                    method = f"10×log₁₀(10^({cur_v}/10) + 10^({eq_v}/10))"
-                    method_name = "🔊 Logarithmic"
-                elif h == "HeatIndex" and eq_v > 0:
-                    method = f"max({cur_v}, {eq_v}) + 10% minor"
-                    method_name = "🌡️ Max + Factor"
-                elif eq_v > 0:
-                    method = f"{cur_v} + {eq_v}"
-                    method_name = "💨 Additive" if h == "CO2" else "⚗️ Additive"
-                else:
-                    method = "No change"
-                    method_name = "—"
-
                 delta = round(comb - cur_v, 1)
                 new_exp = cexp(comb, s["Limit"])
                 new_st = gstat(new_exp)
@@ -689,11 +676,10 @@ with tab4:
                 dc = "#EF5350" if delta > 0 else "#81C784" if delta < 0 else C["text3"]
 
                 st.markdown(f'''<div style="background:#0F172A;border:1px solid #334155;border-radius:12px;padding:14px;text-align:center">
-                    <div style="font-size:11px;color:{C["text3"]};font-weight:600">{method_name}</div>
-                    <div style="font-size:10px;color:{C["text3"]};margin:4px 0;word-break:break-all">{method}</div>
-                    <div style="font-size:22px;font-weight:900;color:{C["text1"]};margin:6px 0">{comb}</div>
-                    <div style="font-size:12px;color:{dc};font-weight:700">{ds} {s["Unit"]}</div>
-                    <div style="margin-top:6px"><span class="kpi-status status-{scss(new_st)}">{sicon(new_st)} {new_st} ({new_exp:.0%})</span></div>
+                    <div style="font-size:12px;color:{C["text3"]};font-weight:700">{s["Icon"]} {s["DisplayName"]}</div>
+                    <div style="font-size:12px;color:{C["text3"]};margin:4px 0">{cur_v} → <strong style="color:{C["text1"]}">{comb}</strong> {s["Unit"]}</div>
+                    <div style="font-size:22px;font-weight:900;color:{dc};margin:6px 0">{ds}</div>
+                    <div><span class="kpi-status status-{scss(new_st)}">{sicon(new_st)} {new_st} ({new_exp:.0%})</span></div>
                 </div>''', unsafe_allow_html=True)
 
         # Build comparison dataframe
@@ -797,6 +783,102 @@ with tab4:
         with v3: st.markdown(rmkpi("📈", "Worsened", f"{worsened} hazards", C["crit_bg"]), unsafe_allow_html=True)
         with v4: st.markdown(rmkpi("📉", "Improved", f"{improved} hazards", C["safe_bg"]), unsafe_allow_html=True)
 
+        # ── Worker Impact Analysis ──
+        # Find workers present in this zone
+        zone_workers = presence_df[presence_df["ZoneID"] == man_zid]["WorkerID"].unique()
+        zone_worker_data = []
+        for wid in zone_workers:
+            wi_row = workers_df[workers_df["WorkerID"]==wid]
+            if len(wi_row)==0: continue
+            wi_row = wi_row.iloc[0]
+            wh_row = health_df[health_df["WorkerID"]==wid].iloc[0] if len(health_df)>0 and wid in health_df["WorkerID"].values else None
+            zone_worker_data.append({"wid":wid, "wi":wi_row, "wh":wh_row})
+
+        if zone_worker_data:
+            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+            lbl_wi = "تأثير المعدة على العمال في هذه المنطقة" if AR else f"Worker Impact — {len(zone_worker_data)} workers in {man_zname}"
+            st.markdown(f'<div class="panel"><div class="panel-title">👷 {lbl_wi}</div>', unsafe_allow_html=True)
+
+            for wd in zone_worker_data:
+                wid = wd["wid"]; wi_r = wd["wi"]; wh_r = wd["wh"]
+                w_name = wi_r["FullName"]; w_job = wi_r["JobTitle"]
+
+                # Build per-worker risks based on AFTER values + health profile
+                w_risks = []
+                w_color = "#81C784"  # default green
+
+                if wh_r is not None:
+                    w_age = wh_r.get("Age", 30)
+                    w_bmi_cat = wh_r.get("BMICategory", "Normal")
+                    w_fitness = wh_r.get("FitnessLevel", "Fit")
+                    w_hearing = wh_r.get("HearingTest", "Pass")
+                    w_lung = wh_r.get("LungFunction", "Normal")
+
+                    # Check each hazard AFTER value against worker profile
+                    for _, r in man_data.iterrows():
+                        h = r["HazardType"]
+                        a_exp = r["AExp"]
+                        a_st = r["ASt"]
+
+                        if h == "Noise" and a_st in ["Warning","Critical"]:
+                            if w_hearing == "Fail":
+                                w_risks.append(("🔴", "Hearing impaired — MUST NOT work in this zone after equipment install. Double protection insufficient at this level." if not AR else "ضعف سمع — يُمنع من العمل بهذه المنطقة بعد تركيب المعدة. الحماية المزدوجة غير كافية."))
+                                w_color = "#EF9A9A"
+                            elif w_hearing == "Partial Loss":
+                                w_risks.append(("🟡", f"Partial hearing loss — Noise at {r['After']} dBA requires double ear protection and max 2-hour shifts." if not AR else f"ضعف سمع جزئي — الضوضاء عند {r['After']} ديسيبل تتطلب حماية أذن مزدوجة وورديات ساعتين كحد أقصى."))
+                                if w_color != "#EF9A9A": w_color = "#FFD54F"
+
+                        if h == "HeatIndex" and a_st in ["Warning","Critical"]:
+                            if isinstance(w_age,(int,float)) and w_age >= 50:
+                                w_risks.append(("🔴", f"Age {w_age} + Heat at {r['After']} — Max 2 hours, mandatory breaks every 30 min, priority hydration." if not AR else f"العمر {w_age} + حرارة {r['After']} — ساعتان كحد أقصى، استراحة كل 30 دقيقة، ترطيب إلزامي."))
+                                w_color = "#EF9A9A"
+                            elif isinstance(w_age,(int,float)) and w_age >= 45:
+                                w_risks.append(("🟡", f"Age {w_age} — Monitor closely during heat exposure at {r['After']}." if not AR else f"العمر {w_age} — مراقبة دقيقة أثناء التعرض للحرارة عند {r['After']}."))
+                                if w_color != "#EF9A9A": w_color = "#FFD54F"
+                            if w_bmi_cat == "Obese":
+                                w_risks.append(("🔴", f"BMI Obese + Heat at {r['After']} — Max 2 hours, hydration every 20 min. Consider reassignment." if not AR else f"سمنة + حرارة {r['After']} — ساعتان كحد أقصى، شرب ماء كل 20 دقيقة. يُنظر في نقله."))
+                                w_color = "#EF9A9A"
+
+                        if h in ["Gas","CO2"] and a_st in ["Warning","Critical"]:
+                            if w_lung == "Reduced":
+                                w_risks.append(("🔴", f"Reduced lung function — {r['Hazard']} at {r['After']} is dangerous. MUST use respiratory PPE or be reassigned." if not AR else f"ضعف وظائف الرئة — {r['Hazard']} عند {r['After']} خطر. يجب ارتداء كمامة تنفس أو النقل."))
+                                w_color = "#EF9A9A"
+
+                    if w_fitness == "Unfit":
+                        w_risks.append(("🔴", "Classified UNFIT — Should not remain in this zone after equipment install." if not AR else "مصنّف غير لائق — لا يجب أن يبقى في هذه المنطقة بعد تركيب المعدة."))
+                        w_color = "#EF9A9A"
+
+                if not w_risks:
+                    w_risks.append(("🟢", "No additional risk from this equipment based on health profile." if not AR else "لا توجد مخاطر إضافية من هذه المعدة بناءً على ملفه الصحي."))
+
+                # Render worker card
+                fit_lbl = ""
+                if wh_r is not None:
+                    fit_lbl = f" · Age: {wh_r.get('Age','')} · BMI: {wh_r.get('BMI','')} ({wh_r.get('BMICategory','')})"
+
+                st.markdown(f'''<div style="background:#0F172A;border:1px solid {w_color};border-radius:14px;padding:16px 20px;margin-bottom:12px">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                        <span style="font-size:28px">👤</span>
+                        <div>
+                            <div style="color:{C["text1"]};font-size:16px;font-weight:800">{w_name}</div>
+                            <div style="color:{C["text3"]};font-size:12px">{w_job}{fit_lbl}</div>
+                        </div>
+                    </div>''', unsafe_allow_html=True)
+
+                for icon, text in w_risks:
+                    rbg = "#4A0E0E" if icon=="🔴" else "#4E3A00" if icon=="🟡" else "#1B3A1B"
+                    rbd = "#C62828" if icon=="🔴" else "#F57F17" if icon=="🟡" else "#2E7D32"
+                    d = "rtl" if AR else "ltr"
+                    a = "right" if AR else "left"
+                    st.markdown(f'''<div style="background:{rbg};border-left:3px solid {rbd};border-radius:8px;padding:10px 14px;margin-bottom:6px;direction:{d};text-align:{a}">
+                        <span style="font-size:14px;margin-right:6px">{icon}</span>
+                        <span style="color:{C["text1"]};font-size:13px">{text}</span>
+                    </div>''', unsafe_allow_html=True)
+
+                st.markdown("</div>", unsafe_allow_html=True)
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
         # Export button
         st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
         if st.button("📥 Export Simulation Report", key="sim_report"):
@@ -872,7 +954,43 @@ with tab4:
                     sim_html += f'<li><strong style="color:#FFD54F">{r["Hazard"]}</strong>: Exposure at {r["AExp"]:.0%} approaching limit. Monitor closely and consider preventive measures.</li>'
                 else:
                     sim_html += f'<li><strong style="color:#81C784">{r["Hazard"]}</strong>: Exposure at {r["AExp"]:.0%} within safe limits.</li>'
-            sim_html += '</ul></div></body></html>'
+            sim_html += '</ul></div>'
+
+            # Worker impact in report
+            if zone_worker_data:
+                sim_html += '<div class="section"><h2>👷 Worker Impact Analysis</h2>'
+                for wd in zone_worker_data:
+                    wid=wd["wid"]; wi_r=wd["wi"]; wh_r=wd["wh"]
+                    w_name=wi_r["FullName"]; w_job=wi_r["JobTitle"]
+                    fit_info = f" · Age: {wh_r.get('Age','')} · BMI: {wh_r.get('BMI','')} ({wh_r.get('BMICategory','')})" if wh_r is not None else ""
+                    sim_html += f'<div style="border:1px solid #334155;border-radius:8px;padding:12px;margin:8px 0"><strong style="color:#4FC3F7">{w_name}</strong> <span style="color:#94A3B8">— {w_job}{fit_info}</span><ul style="margin:8px 0">'
+                    has_risk = False
+                    if wh_r is not None:
+                        for _, r in man_data.iterrows():
+                            h=r["HazardType"]; a_st=r["ASt"]
+                            if h=="Noise" and a_st in ["Warning","Critical"] and wh_r.get("HearingTest") in ["Fail","Partial Loss"]:
+                                sim_html += f'<li class="critical">Hearing: {wh_r.get("HearingTest")} — Noise at {r["After"]} dBA requires additional protection</li>'
+                                has_risk = True
+                            if h=="HeatIndex" and a_st in ["Warning","Critical"]:
+                                wa = wh_r.get("Age",30)
+                                if isinstance(wa,(int,float)) and wa>=45:
+                                    sim_html += f'<li class="warning">Age {wa} — Heat at {r["After"]} requires reduced shifts and breaks</li>'
+                                    has_risk = True
+                                if wh_r.get("BMICategory")=="Obese":
+                                    sim_html += f'<li class="critical">BMI Obese — Heat at {r["After"]} requires max 2hr shifts and hydration</li>'
+                                    has_risk = True
+                            if h in ["Gas","CO2"] and a_st in ["Warning","Critical"] and wh_r.get("LungFunction")=="Reduced":
+                                sim_html += f'<li class="critical">Reduced lung function — {r["Hazard"]} at {r["After"]} requires respiratory PPE</li>'
+                                has_risk = True
+                        if wh_r.get("FitnessLevel")=="Unfit":
+                            sim_html += '<li class="critical">Classified UNFIT — Should not remain in this zone</li>'
+                            has_risk = True
+                    if not has_risk:
+                        sim_html += '<li class="safe">No additional risk from this equipment</li>'
+                    sim_html += '</ul></div>'
+                sim_html += '</div>'
+
+            sim_html += '</body></html>'
 
             st.download_button("📥 Download Simulation Report", data=sim_html,
                 file_name=f"Simulation_{man_zname.replace(' ','_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
@@ -1154,6 +1272,328 @@ with tab6:
         st.markdown("</div>",unsafe_allow_html=True)
     else: st.success("✅ No alerts!")
     st.markdown("</div>",unsafe_allow_html=True)
+
+    # ── Worker Violation Alerts ──
+    st.markdown(f'<div class="panel"><div class="panel-title">{"👷 تنبيهات العمال — تجاوز الحدود المسموحة" if AR else "👷 Worker Violation Alerts — Exceeded Exposure Limits"}</div>', unsafe_allow_html=True)
+
+    worker_violations = []
+    for _, w in workers_df.iterrows():
+        wid = w["WorkerID"]
+        wp2 = presence_df[presence_df["WorkerID"]==wid]
+        if len(wp2) == 0: continue
+        wh_r = health_df[health_df["WorkerID"]==wid].iloc[0] if len(health_df)>0 and wid in health_df["WorkerID"].values else None
+
+        for _, p in wp2.iterrows():
+            zs = zhstats(p["ZoneID"])
+            z_name = zname(p["ZoneID"])
+            for s in zs:
+                if s["Status"] in ["Warning", "Critical"]:
+                    reasons = []
+                    if wh_r is not None:
+                        if s["HazardType"] == "Noise" and wh_r.get("HearingTest") in ["Fail","Partial Loss"]:
+                            reasons.append("🔊 " + ("ضعف سمع" if AR else "Hearing impaired"))
+                        if s["HazardType"] == "HeatIndex":
+                            age = wh_r.get("Age",30)
+                            if isinstance(age,(int,float)) and age >= 45:
+                                reasons.append("🎂 " + (f"عمره {age}" if AR else f"Age {age}"))
+                            if wh_r.get("BMICategory") == "Obese":
+                                reasons.append("⚖️ " + ("سمنة" if AR else "Obese"))
+                        if s["HazardType"] in ["Gas","CO2"] and wh_r.get("LungFunction") == "Reduced":
+                            reasons.append("🫁 " + ("ضعف تنفس" if AR else "Reduced lung"))
+                        if wh_r.get("FitnessLevel") == "Unfit":
+                            reasons.append("❌ " + ("غير لائق" if AR else "Unfit"))
+
+                    worker_violations.append({
+                        "name": w["FullName"], "job": w["JobTitle"], "zone": z_name,
+                        "hazard": s["DisplayName"], "icon": s["Icon"],
+                        "value": s["CurrentValue"], "unit": s["Unit"],
+                        "limit": s["Limit"], "exp": s["ExposurePct"],
+                        "status": s["Status"], "reasons": reasons
+                    })
+
+    if worker_violations:
+        # Summary
+        n_crit_w = len([v for v in worker_violations if v["status"]=="Critical"])
+        n_warn_w = len([v for v in worker_violations if v["status"]=="Warning"])
+        unique_workers = len(set(v["name"] for v in worker_violations))
+        vk1,vk2,vk3 = st.columns(3)
+        with vk1: st.markdown(rmkpi("👷", "عمال متأثرين" if AR else "Workers Affected", unique_workers, C["crit_bg"]), unsafe_allow_html=True)
+        with vk2: st.markdown(rmkpi("🚨", "حرج" if AR else "Critical", n_crit_w, C["crit_bg"]), unsafe_allow_html=True)
+        with vk3: st.markdown(rmkpi("⚠️", "تحذير" if AR else "Warning", n_warn_w, C["warn_bg"]), unsafe_allow_html=True)
+
+        # Worker cards
+        seen = set()
+        for v in worker_violations:
+            key = f"{v['name']}_{v['zone']}_{v['hazard']}"
+            if key in seen: continue
+            seen.add(key)
+
+            vc = "#C62828" if v["status"]=="Critical" else "#F9A825"
+            vbg = "#4A0E0E" if v["status"]=="Critical" else "#4E3A00"
+            reason_txt = " · ".join(v["reasons"]) if v["reasons"] else ("لا توجد عوامل صحية إضافية" if AR else "No additional health factors")
+            health_flag = "🔴" if v["reasons"] else "🟢"
+
+            d = "rtl" if AR else "ltr"
+            a = "right" if AR else "left"
+            st.markdown(f'''<div style="background:{vbg};border-left:4px solid {vc};border-radius:12px;padding:14px 18px;margin-bottom:8px;direction:{d};text-align:{a}">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+                    <div>
+                        <span style="color:{C["text1"]};font-size:15px;font-weight:800">👤 {v["name"]}</span>
+                        <span style="color:{C["text3"]};font-size:12px;margin:0 8px">({v["job"]})</span>
+                    </div>
+                    <span class="kpi-status status-{scss(v["status"])}">{v["status"]}</span>
+                </div>
+                <div style="color:{C["text2"]};font-size:13px;margin-top:6px">
+                    🏭 {v["zone"]} — {v["icon"]} {v["hazard"]}: <strong style="color:{vc}">{v["value"]} {v["unit"]}</strong>
+                    {"(الحد" if AR else "(Limit"}: {v["limit"]}) — {"التعرض" if AR else "Exposure"}: <strong style="color:{vc}">{v["exp"]:.0%}</strong>
+                </div>
+                <div style="color:{C["text3"]};font-size:12px;margin-top:4px">{health_flag} {"عوامل صحية" if AR else "Health factors"}: {reason_txt}</div>
+            </div>''', unsafe_allow_html=True)
+
+    else:
+        st.markdown(f'''<div style="background:#1B3A1B;border-radius:12px;padding:20px;text-align:center">
+            <div style="font-size:36px">✅</div>
+            <div style="color:#81C784;font-size:16px;font-weight:700">{"لا يوجد عمال تجاوزوا الحدود" if AR else "No workers exceeding exposure limits"}</div>
+        </div>''', unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ═══════════════ TAB 7: EXECUTIVE DASHBOARD ═══════════════
+with tab7:
+    st.markdown(f'<div class="panel"><div class="panel-title">{"🎯 لوحة القيادة التنفيذية" if AR else "🎯 Executive Dashboard — Plant Safety Overview"}</div>', unsafe_allow_html=True)
+
+    # Calculate plant-wide health compliance score
+    all_stats = zhstats()
+    max_exps = []
+    for _, z in zones_df.iterrows():
+        zs = zhstats(z["ZoneID"])
+        mx = max(s["ExposurePct"] for s in zs) if zs else 0
+        max_exps.append(mx)
+    avg_exp = np.mean(max_exps) if max_exps else 0
+    # Safety score: 100 = all safe, 0 = all at 200%+. Cap exposure at 2.0 for scoring
+    capped_exps = [min(e, 2.0) for e in max_exps]
+    avg_capped = np.mean(capped_exps) if capped_exps else 0
+    safety_score = max(0, round((1 - avg_capped / 2.0) * 100))
+
+    # Safety Score Gauge
+    sc_color = "#81C784" if safety_score >= 70 else "#FFD54F" if safety_score >= 40 else "#EF9A9A"
+    sc_label = ("ممتاز" if safety_score>=80 else "جيد" if safety_score>=60 else "تحذير" if safety_score>=40 else "خطر") if AR else ("Excellent" if safety_score>=80 else "Good" if safety_score>=60 else "Warning" if safety_score>=40 else "Critical")
+
+    st.markdown(f'''<div style="text-align:center;padding:20px 0">
+        <div style="display:inline-block;width:220px;height:220px;border-radius:50%;border:12px solid {sc_color};position:relative;box-shadow:0 0 40px {sc_color}40">
+            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)">
+                <div style="font-size:56px;font-weight:900;color:{sc_color}">{safety_score}</div>
+                <div style="font-size:14px;color:{C["text3"]};font-weight:700">{"درجة الامتثال الصحي" if AR else "HEALTH COMPLIANCE"}</div>
+                <div style="font-size:16px;color:{sc_color};font-weight:800;margin-top:4px">{sc_label}</div>
+            </div>
+        </div>
+    </div>''', unsafe_allow_html=True)
+
+    # Reference legend
+    if AR:
+        ref_rows = '''<tr><td style="color:#81C784;font-weight:800">80 — 100</td><td style="color:#81C784;font-weight:700">ممتاز</td><td style="color:{t3}">جميع المناطق ضمن الحدود المسموحة</td></tr>
+        <tr><td style="color:#4FC3F7;font-weight:800">60 — 79</td><td style="color:#4FC3F7;font-weight:700">جيد</td><td style="color:{t3}">أغلب المناطق آمنة مع مراقبة بسيطة</td></tr>
+        <tr><td style="color:#FFD54F;font-weight:800">40 — 59</td><td style="color:#FFD54F;font-weight:700">تحذير</td><td style="color:{t3}">بعض المناطق تقترب من الحدود — يحتاج تدخل</td></tr>
+        <tr><td style="color:#EF9A9A;font-weight:800">0 — 39</td><td style="color:#EF9A9A;font-weight:700">خطر</td><td style="color:{t3}">تجاوزات متعددة — إجراء فوري مطلوب</td></tr>'''.format(t3=C["text3"])
+        ref_title = "📖 مرجع درجة الامتثال الصحي"
+        ref_h1 = "الدرجة"; ref_h2 = "التصنيف"; ref_h3 = "الوصف"
+    else:
+        ref_rows = '''<tr><td style="color:#81C784;font-weight:800">80 — 100</td><td style="color:#81C784;font-weight:700">Excellent</td><td style="color:{t3}">All zones within permissible exposure limits</td></tr>
+        <tr><td style="color:#4FC3F7;font-weight:800">60 — 79</td><td style="color:#4FC3F7;font-weight:700">Good</td><td style="color:{t3}">Most zones safe with minor monitoring needed</td></tr>
+        <tr><td style="color:#FFD54F;font-weight:800">40 — 59</td><td style="color:#FFD54F;font-weight:700">Warning</td><td style="color:{t3}">Some zones approaching limits — intervention needed</td></tr>
+        <tr><td style="color:#EF9A9A;font-weight:800">0 — 39</td><td style="color:#EF9A9A;font-weight:700">Critical</td><td style="color:{t3}">Multiple limit exceedances — immediate action required</td></tr>'''.format(t3=C["text3"])
+        ref_title = "📖 Health Compliance Score Reference"
+        ref_h1 = "Score"; ref_h2 = "Rating"; ref_h3 = "Description"
+
+    st.markdown(f'''<div style="background:#0F172A;border:1px solid #334155;border-radius:14px;padding:16px 20px;margin:12px auto;max-width:600px">
+        <div style="color:{C["accent"]};font-size:13px;font-weight:700;margin-bottom:10px;text-align:center">{ref_title}</div>
+        <table style="width:100%;border-collapse:collapse">
+            <tr><th style="color:{C["text3"]};font-size:11px;padding:6px 8px;text-align:left;border-bottom:1px solid #334155">{ref_h1}</th>
+                <th style="color:{C["text3"]};font-size:11px;padding:6px 8px;text-align:left;border-bottom:1px solid #334155">{ref_h2}</th>
+                <th style="color:{C["text3"]};font-size:11px;padding:6px 8px;text-align:left;border-bottom:1px solid #334155">{ref_h3}</th></tr>
+            {ref_rows}
+        </table>
+    </div>''', unsafe_allow_html=True)
+
+    # Key metrics row
+    n_crit = sum(1 for e in max_exps if e >= 1.0)
+    n_warn = sum(1 for e in max_exps if 0.8 <= e < 1.0)
+    n_safe = sum(1 for e in max_exps if e < 0.8)
+    w_at_risk = 0
+    for wid in workers_df["WorkerID"]:
+        wp2 = presence_df[presence_df["WorkerID"]==wid]
+        for _, p in wp2.iterrows():
+            if zoverall(p["ZoneID"]) == "Critical": w_at_risk += 1; break
+
+    e1,e2,e3,e4,e5,e6 = st.columns(6)
+    with e1: st.markdown(rmkpi("🏭", "المناطق" if AR else "Total Zones", len(zones_df), C["safe_bg"]), unsafe_allow_html=True)
+    with e2: st.markdown(rmkpi("✅", "آمنة" if AR else "Safe", n_safe, C["safe_bg"]), unsafe_allow_html=True)
+    with e3: st.markdown(rmkpi("⚠️", "تحذير" if AR else "Warning", n_warn, C["warn_bg"]), unsafe_allow_html=True)
+    with e4: st.markdown(rmkpi("🚨", "حرجة" if AR else "Critical", n_crit, C["crit_bg"]), unsafe_allow_html=True)
+    with e5: st.markdown(rmkpi("👷", "العمال" if AR else "Workers", len(workers_df), C["safe_bg"]), unsafe_allow_html=True)
+    with e6: st.markdown(rmkpi("⚠️", "معرضون" if AR else "At Risk", w_at_risk, C["crit_bg"]), unsafe_allow_html=True)
+
+    # Most dangerous zone + most exposed worker
+    ex1, ex2 = st.columns(2)
+    worst_idx = np.argmax(max_exps)
+    worst_zone = zones_df.iloc[worst_idx]
+    worst_exp = max_exps[worst_idx]
+    with ex1:
+        wz_st = gstat(worst_exp)
+        st.markdown(f'''<div class="panel" style="border-left:4px solid {stxt(wz_st)}">
+            <div style="font-size:12px;color:{C["text3"]};font-weight:700">{"🔴 أخطر منطقة" if AR else "🔴 Most Dangerous Zone"}</div>
+            <div style="font-size:22px;font-weight:900;color:{C["text1"]};margin:6px 0">{worst_zone["ZoneName"]}</div>
+            <div style="font-size:14px;color:{stxt(wz_st)};font-weight:700">{"التعرض" if AR else "Exposure"}: {worst_exp:.0%} — {wz_st}</div>
+        </div>''', unsafe_allow_html=True)
+
+    # Most exposed worker
+    with ex2:
+        w_exps = []
+        for _, w in workers_df.iterrows():
+            wp2 = presence_df[presence_df["WorkerID"]==w["WorkerID"]]
+            if len(wp2) > 0:
+                zone_exps = [max(s["ExposurePct"] for s in zhstats(p["ZoneID"])) for _, p in wp2.iterrows()]
+                w_exps.append({"name": w["FullName"], "job": w["JobTitle"], "exp": max(zone_exps)})
+        if w_exps:
+            top_w = max(w_exps, key=lambda x: x["exp"])
+            tw_st = gstat(top_w["exp"])
+            st.markdown(f'''<div class="panel" style="border-left:4px solid {stxt(tw_st)}">
+                <div style="font-size:12px;color:{C["text3"]};font-weight:700">{"👷 أكثر عامل تعرضاً" if AR else "👷 Most Exposed Worker"}</div>
+                <div style="font-size:22px;font-weight:900;color:{C["text1"]};margin:6px 0">{top_w["name"]}</div>
+                <div style="font-size:14px;color:{stxt(tw_st)};font-weight:700">{top_w["job"]} — {top_w["exp"]:.0%} {tw_st}</div>
+            </div>''', unsafe_allow_html=True)
+
+    # Zone ranking bar chart
+    st.markdown(f'<div style="margin-top:16px;color:{C["accent"]};font-size:14px;font-weight:700">{"📊 ترتيب المناطق حسب الخطورة" if AR else "📊 Zone Risk Ranking"}</div>', unsafe_allow_html=True)
+    zrank = pd.DataFrame({"Zone": [z["ZoneName"] for _,z in zones_df.iterrows()], "Exposure": [e*100 for e in max_exps]}).sort_values("Exposure", ascending=True)
+    colors_r = ["#C62828" if v>=100 else "#F9A825" if v>=80 else "#2E7D32" for v in zrank["Exposure"]]
+    fig_r = go.Figure(go.Bar(x=zrank["Exposure"], y=zrank["Zone"], orientation="h", marker_color=colors_r, text=[f"{v:.0f}%" for v in zrank["Exposure"]], textposition="outside"))
+    fig_r.add_vline(x=100, line_dash="dash", line_color="#C62828", line_width=2)
+    fig_r.update_layout(plot_bgcolor=C["bg"], paper_bgcolor=C["bg"], font=dict(color=C["text2"]), height=300, xaxis_title="Exposure %", yaxis=dict(gridcolor=C["grid"]), margin=dict(l=10,r=10,t=10,b=40))
+    st.plotly_chart(fig_r, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ═══════════════ TAB 9: HEAT STRESS CALCULATOR ═══════════════
+with tab9:
+    st.markdown(f'<div class="panel"><div class="panel-title">{"🌡️ حاسبة الإجهاد الحراري — قرار حظر العمل" if AR else "🌡️ Heat Stress Calculator — NCOSH Work Ban Compliance"}</div>', unsafe_allow_html=True)
+
+    st.markdown(f'''<div style="background:#4E3A00;border:1px solid #F57F17;border-radius:12px;padding:16px;margin-bottom:16px">
+        <div style="color:#FFD54F;font-size:13px;font-weight:700">{"📋 قرار حظر العمل تحت أشعة الشمس — المجلس الوطني للسلامة والصحة المهنية" if AR else "📋 NCOSH Sun Work Ban — June 15 to September 15, 12:00 PM to 3:00 PM"}</div>
+        <div style="color:{C["text2"]};font-size:12px;margin-top:6px">{"يُمنع العمل تحت أشعة الشمس من 15 يونيو إلى 15 سبتمبر، من الساعة 12 ظهراً إلى 3 عصراً" if AR else "All outdoor work is prohibited under direct sunlight during this period per NCOSH regulations."}</div>
+    </div>''', unsafe_allow_html=True)
+
+    # Check if currently in ban period
+    month = datetime.now().month
+    hour = datetime.now().hour
+    in_ban_period = month in [6,7,8,9] or (month == 6 and datetime.now().day >= 15) or (month == 9 and datetime.now().day <= 15)
+    in_ban_hours = 12 <= hour < 15
+
+    if in_ban_period and in_ban_hours:
+        st.markdown(f'''<div style="background:#C62828;border-radius:16px;padding:24px;text-align:center;animation:pulse 2s infinite">
+            <div style="font-size:48px">🚫</div>
+            <div style="color:white;font-size:22px;font-weight:900;margin:8px 0">{"العمل الخارجي محظور الآن!" if AR else "OUTDOOR WORK CURRENTLY BANNED!"}</div>
+            <div style="color:#EF9A9A;font-size:14px">12:00 PM — 3:00 PM</div>
+        </div>''', unsafe_allow_html=True)
+    elif in_ban_period:
+        st.markdown(f'''<div style="background:#4E3A00;border-radius:16px;padding:20px;text-align:center">
+            <div style="font-size:36px">⚠️</div>
+            <div style="color:#FFD54F;font-size:18px;font-weight:800">{"فترة حظر نشطة — العمل الخارجي ممنوع 12-3" if AR else "Ban Period Active — Outdoor work prohibited 12-3 PM"}</div>
+        </div>''', unsafe_allow_html=True)
+    else:
+        st.markdown(f'''<div style="background:#1B3A1B;border-radius:16px;padding:20px;text-align:center">
+            <div style="font-size:36px">✅</div>
+            <div style="color:#81C784;font-size:18px;font-weight:800">{"خارج فترة الحظر — العمل الخارجي مسموح" if AR else "Outside Ban Period — Outdoor work permitted"}</div>
+        </div>''', unsafe_allow_html=True)
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    # WBGT Calculator
+    st.markdown(f'<div style="color:{C["accent"]};font-size:14px;font-weight:700;margin-bottom:12px">{"🔬 حاسبة WBGT (مؤشر الحرارة الرطبة)" if AR else "🔬 WBGT Calculator (Wet Bulb Globe Temperature)"}</div>', unsafe_allow_html=True)
+
+    hc1, hc2, hc3 = st.columns(3)
+    with hc1:
+        temp_c = st.number_input("🌡️ Temperature (°C)" if not AR else "🌡️ درجة الحرارة (°C)", 20.0, 60.0, 42.0, 1.0, key="wbgt_t")
+    with hc2:
+        humidity = st.number_input("💧 Humidity (%)" if not AR else "💧 الرطوبة (%)", 5.0, 100.0, 35.0, 5.0, key="wbgt_h")
+    with hc3:
+        sun = st.selectbox("☀️ Sun Exposure" if not AR else "☀️ التعرض للشمس", ["Direct Sun", "Shade", "Indoor"], key="wbgt_s")
+
+    # Simplified WBGT estimation
+    sun_add = 7 if sun=="Direct Sun" else 2 if sun=="Shade" else 0
+    wbgt = 0.567 * temp_c + 0.393 * (humidity/100 * 6.105 * math.exp(17.27*temp_c/(237.7+temp_c))) + 3.94 + sun_add
+    wbgt = min(wbgt, 50)
+
+    if wbgt >= 33: wbgt_level = "Extreme"; wbgt_color = "#C62828"; wbgt_ar = "خطر شديد"
+    elif wbgt >= 30: wbgt_level = "High"; wbgt_color = "#E65100"; wbgt_ar = "خطر عالي"
+    elif wbgt >= 27: wbgt_level = "Moderate"; wbgt_color = "#F57F17"; wbgt_ar = "متوسط"
+    elif wbgt >= 24: wbgt_level = "Low"; wbgt_color = "#81C784"; wbgt_ar = "منخفض"
+    else: wbgt_level = "Minimal"; wbgt_color = "#4FC3F7"; wbgt_ar = "ضئيل"
+
+    st.markdown(f'''<div style="text-align:center;padding:20px">
+        <div style="display:inline-block;background:#0F172A;border:4px solid {wbgt_color};border-radius:20px;padding:30px 50px;box-shadow:0 0 30px {wbgt_color}30">
+            <div style="font-size:14px;color:{C["text3"]};font-weight:700">WBGT</div>
+            <div style="font-size:48px;font-weight:900;color:{wbgt_color}">{wbgt:.1f}°C</div>
+            <div style="font-size:16px;color:{wbgt_color};font-weight:800">{wbgt_ar if AR else wbgt_level}</div>
+        </div>
+    </div>''', unsafe_allow_html=True)
+
+    # Work/rest schedule based on WBGT
+    st.markdown(f'<div style="color:{C["accent"]};font-size:14px;font-weight:700;margin:16px 0">{"📋 جدول العمل والراحة المقترح" if AR else "📋 Recommended Work/Rest Schedule"}</div>', unsafe_allow_html=True)
+
+    work_cats = [
+        ("Light Work" if not AR else "عمل خفيف", "Control room, monitoring", 75 if wbgt<28 else 50 if wbgt<30 else 25 if wbgt<32 else 0),
+        ("Moderate Work" if not AR else "عمل متوسط", "Maintenance, inspection", 75 if wbgt<26 else 50 if wbgt<28 else 25 if wbgt<30 else 0),
+        ("Heavy Work" if not AR else "عمل شاق", "Equipment install, manual labor", 50 if wbgt<25 else 25 if wbgt<27 else 0),
+    ]
+
+    for cat_name, cat_desc, work_pct in work_cats:
+        rest_pct = 100 - work_pct
+        bar_color = "#81C784" if work_pct >= 75 else "#FFD54F" if work_pct >= 50 else "#EF9A9A" if work_pct > 0 else "#C62828"
+        w_label = "عمل" if AR else "work"
+        r_label = "راحة" if AR else "rest"
+        status_txt = f"{work_pct}% {w_label} / {rest_pct}% {r_label}" if work_pct > 0 else ("⛔ يُمنع العمل" if AR else "⛔ WORK PROHIBITED")
+        st.markdown(f'''<div style="background:#0F172A;border-radius:12px;padding:14px 18px;margin-bottom:8px;border:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+                <div><div style="color:{C["text1"]};font-size:14px;font-weight:700">{cat_name}</div><div style="color:{C["text3"]};font-size:11px">{cat_desc}</div></div>
+                <div style="color:{bar_color};font-size:14px;font-weight:800">{status_txt}</div>
+            </div>
+            <div style="background:#1E293B;border-radius:6px;height:8px;margin-top:8px;overflow:hidden">
+                <div style="background:{bar_color};height:100%;width:{work_pct}%;border-radius:6px;transition:width 0.5s"></div>
+            </div>
+        </div>''', unsafe_allow_html=True)
+
+    # Worker-specific heat tolerance
+    st.markdown(f'<div style="color:{C["accent"]};font-size:14px;font-weight:700;margin:16px 0">{"👷 تحمّل العمال للحرارة (بناءً على الملف الصحي)" if AR else "👷 Worker Heat Tolerance (based on health profile)"}</div>', unsafe_allow_html=True)
+
+    if len(health_df) > 0:
+        ht_data = []
+        for _, w in workers_df.iterrows():
+            wh_r = health_df[health_df["WorkerID"]==w["WorkerID"]].iloc[0] if w["WorkerID"] in health_df["WorkerID"].values else None
+            if wh_r is None: continue
+            w_age = wh_r.get("Age", 30)
+            w_bmi = wh_r.get("BMI", 25)
+            w_fit = wh_r.get("FitnessLevel", "Fit")
+
+            # Calculate max hours based on WBGT + profile
+            base_hours = 8 if wbgt < 27 else 6 if wbgt < 30 else 4 if wbgt < 33 else 2
+            if isinstance(w_age,(int,float)) and w_age >= 50: base_hours *= 0.5
+            elif isinstance(w_age,(int,float)) and w_age >= 45: base_hours *= 0.7
+            if isinstance(w_bmi,(int,float,float)) and w_bmi >= 30: base_hours *= 0.6
+            if w_fit == "Unfit": base_hours *= 0.3
+            elif w_fit == "Moderate": base_hours *= 0.7
+            base_hours = max(0, round(base_hours, 1))
+
+            risk = "🔴" if base_hours <= 2 else "🟡" if base_hours <= 4 else "🟢"
+            ht_data.append({"name": w["FullName"], "age": w_age, "bmi": w_bmi, "fit": w_fit, "hours": base_hours, "risk": risk})
+
+        ht_data.sort(key=lambda x: x["hours"])
+        t = f'<table class="styled-table"><tr><th>{"العامل" if AR else "Worker"}</th><th>{"العمر" if AR else "Age"}</th><th>BMI</th><th>{"اللياقة" if AR else "Fitness"}</th><th>{"الحد الأقصى" if AR else "Max Hours"}</th><th>{"الحالة" if AR else "Status"}</th></tr>'
+        for d in ht_data:
+            hc = "#EF9A9A" if d["hours"]<=2 else "#FFD54F" if d["hours"]<=4 else "#81C784"
+            t += f'<tr><td style="color:{C["text1"]}!important;font-weight:700">{d["name"]}</td><td style="color:{C["text2"]}!important">{d["age"]}</td><td style="color:{C["text2"]}!important">{d["bmi"]}</td><td style="color:{C["text2"]}!important">{d["fit"]}</td><td style="color:{hc}!important;font-weight:800">{d["hours"]} hrs</td><td>{d["risk"]}</td></tr>'
+        t += '</table>'
+        st.markdown(t, unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ═══════════════ EXPORT + FOOTER ═══════════════
 st.markdown("---")
