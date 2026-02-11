@@ -129,6 +129,39 @@ div[data-testid="stRadio"]>div>label>div:last-child{{display:none!important}}
 div[data-baseweb="select"]>div{{border-radius:12px!important;border-color:#334155!important;background:{C["card"]}!important}}
 div[data-baseweb="input"]>div{{background:{C["card"]}!important;border-color:#334155!important;border-radius:10px!important}}
 .stNumberInput>div>div>input{{background:{C["card"]}!important;color:{C["text1"]}!important}}
+
+/* ═══ MOBILE RESPONSIVE ═══ */
+@media (max-width: 768px) {{
+    .main .block-container{{padding-left:0.5rem!important;padding-right:0.5rem!important;max-width:100%!important}}
+    .nav-bar{{flex-direction:column;margin:-1rem -0.5rem 1rem;border-radius:0 0 14px 14px;padding:8px!important}}
+    .nav-logo{{padding:10px 16px!important}}
+    .nav-logo-text{{font-size:16px!important}}
+    .nav-right{{padding:4px 16px 8px!important}}
+    .kpi-card{{padding:14px 10px!important;border-radius:14px!important}}
+    .kpi-value{{font-size:22px!important}}
+    .kpi-icon{{font-size:22px!important}}
+    .kpi-label{{font-size:9px!important}}
+    .panel{{padding:14px!important;border-radius:14px!important;margin-bottom:10px!important}}
+    .panel-title{{font-size:14px!important;margin-bottom:12px!important}}
+    .styled-table th,.styled-table td{{padding:8px 10px!important;font-size:11px!important}}
+    .mini-kpi{{padding:10px 12px!important}}
+    .mini-kpi-value{{font-size:18px!important}}
+    .alert-item{{padding:10px 12px!important;flex-wrap:wrap!important}}
+    .stTabs [data-baseweb="tab-list"]{{border-radius:10px!important;padding:3px!important;flex-wrap:wrap!important}}
+    .stTabs [data-baseweb="tab"]{{font-size:9px!important;padding:8px 10px!important;letter-spacing:0!important}}
+    .sim-input-card{{padding:12px!important}}
+    .zone-card{{padding:10px 12px!important}}
+    .alert-bar{{padding:8px 12px!important;font-size:11px!important}}
+    div[data-testid="column"]{{padding:0 2px!important}}
+}}
+@media (max-width: 480px) {{
+    .nav-logo-icon{{width:32px!important;height:32px!important;font-size:16px!important;border-radius:10px!important}}
+    .nav-logo-text{{font-size:14px!important;letter-spacing:1px!important}}
+    .kpi-value{{font-size:18px!important}}
+    .kpi-card{{padding:10px 8px!important}}
+    .panel-title{{font-size:13px!important}}
+    .stTabs [data-baseweb="tab"]{{font-size:8px!important;padding:6px 6px!important}}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1507,7 +1540,7 @@ with tab9:
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
     # WBGT Calculator
-    st.markdown(f'<div style="color:{C["accent"]};font-size:14px;font-weight:700;margin-bottom:12px">{"🔬 حاسبة WBGT (مؤشر الحرارة الرطبة)" if AR else "🔬 WBGT Calculator (Wet Bulb Globe Temperature)"}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="color:{C["accent"]};font-size:14px;font-weight:700;margin-bottom:12px">{"🔬 حاسبة مؤشر الحرارة — OSHA/NWS" if AR else "🔬 Heat Index Calculator (OSHA/NWS Rothfusz Equation)"}</div>', unsafe_allow_html=True)
 
     hc1, hc2, hc3 = st.columns(3)
     with hc1:
@@ -1517,32 +1550,77 @@ with tab9:
     with hc3:
         sun = st.selectbox("☀️ Sun Exposure" if not AR else "☀️ التعرض للشمس", ["Direct Sun", "Shade", "Indoor"], key="wbgt_s")
 
-    # Simplified WBGT estimation
-    sun_add = 7 if sun=="Direct Sun" else 2 if sun=="Shade" else 0
-    wbgt = 0.567 * temp_c + 0.393 * (humidity/100 * 6.105 * math.exp(17.27*temp_c/(237.7+temp_c))) + 3.94 + sun_add
-    wbgt = min(wbgt, 50)
+    # NWS/OSHA Heat Index (Rothfusz regression equation)
+    # Convert to Fahrenheit for the formula
+    T = temp_c * 9/5 + 32  # °F
+    RH = humidity
 
-    if wbgt >= 33: wbgt_level = "Extreme"; wbgt_color = "#C62828"; wbgt_ar = "خطر شديد"
-    elif wbgt >= 30: wbgt_level = "High"; wbgt_color = "#E65100"; wbgt_ar = "خطر عالي"
-    elif wbgt >= 27: wbgt_level = "Moderate"; wbgt_color = "#F57F17"; wbgt_ar = "متوسط"
-    elif wbgt >= 24: wbgt_level = "Low"; wbgt_color = "#81C784"; wbgt_ar = "منخفض"
-    else: wbgt_level = "Minimal"; wbgt_color = "#4FC3F7"; wbgt_ar = "ضئيل"
+    # Simple formula for low HI
+    HI_simple = 0.5 * (T + 61.0 + ((T - 68.0) * 1.2) + (RH * 0.094))
+
+    if HI_simple >= 80:
+        # Full Rothfusz regression
+        HI = (-42.379
+              + 2.04901523 * T
+              + 10.14333127 * RH
+              - 0.22475541 * T * RH
+              - 0.00683783 * T * T
+              - 0.05481717 * RH * RH
+              + 0.00122874 * T * T * RH
+              + 0.00085282 * T * RH * RH
+              - 0.00000199 * T * T * RH * RH)
+
+        # Adjustments
+        if RH < 13 and 80 < T < 112:
+            HI -= ((13 - RH) / 4) * math.sqrt((17 - abs(T - 95)) / 17)
+        elif RH > 85 and 80 < T < 87:
+            HI += ((RH - 85) / 10) * ((87 - T) / 5)
+    else:
+        HI = HI_simple
+
+    # Convert back to Celsius
+    heat_index_c = round((HI - 32) * 5/9, 1)
+
+    # Sun exposure adjustment (OSHA recommends +15°F for direct sun)
+    sun_add_f = 15 if sun=="Direct Sun" else 5 if sun=="Shade" else 0
+    sun_add_c = round(sun_add_f * 5/9, 1)
+    heat_index_c = heat_index_c + sun_add_c
+
+    # OSHA risk categories based on Heat Index
+    if heat_index_c >= 54: hi_level = "Extreme Danger"; hi_color = "#C62828"; hi_ar = "خطر شديد جداً"
+    elif heat_index_c >= 41: hi_level = "Danger"; hi_color = "#E65100"; hi_ar = "خطر"
+    elif heat_index_c >= 33: hi_level = "Extreme Caution"; hi_color = "#F57F17"; hi_ar = "حذر شديد"
+    elif heat_index_c >= 27: hi_level = "Caution"; hi_color = "#81C784"; hi_ar = "حذر"
+    else: hi_level = "Safe"; hi_color = "#4FC3F7"; hi_ar = "آمن"
 
     st.markdown(f'''<div style="text-align:center;padding:20px">
-        <div style="display:inline-block;background:#0F172A;border:4px solid {wbgt_color};border-radius:20px;padding:30px 50px;box-shadow:0 0 30px {wbgt_color}30">
-            <div style="font-size:14px;color:{C["text3"]};font-weight:700">WBGT</div>
-            <div style="font-size:48px;font-weight:900;color:{wbgt_color}">{wbgt:.1f}°C</div>
-            <div style="font-size:16px;color:{wbgt_color};font-weight:800">{wbgt_ar if AR else wbgt_level}</div>
+        <div style="display:inline-block;background:#0F172A;border:4px solid {hi_color};border-radius:20px;padding:30px 50px;box-shadow:0 0 30px {hi_color}30">
+            <div style="font-size:14px;color:{C["text3"]};font-weight:700">{"مؤشر الحرارة" if AR else "HEAT INDEX"} (OSHA/NWS)</div>
+            <div style="font-size:48px;font-weight:900;color:{hi_color}">{heat_index_c}°C</div>
+            <div style="font-size:14px;color:{C["text3"]};margin:4px 0">({round(HI + sun_add_f)}°F)</div>
+            <div style="font-size:16px;color:{hi_color};font-weight:800">{hi_ar if AR else hi_level}</div>
         </div>
+    </div>''', unsafe_allow_html=True)
+
+    # OSHA Reference table
+    st.markdown(f'''<div style="background:#0F172A;border:1px solid #334155;border-radius:14px;padding:14px 18px;margin:12px auto;max-width:550px">
+        <div style="color:{C["accent"]};font-size:12px;font-weight:700;margin-bottom:8px;text-align:center">{"📖 مرجع OSHA — مستويات مؤشر الحرارة" if AR else "📖 OSHA Heat Index Reference"}</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <tr><td style="color:#4FC3F7;padding:4px 8px;font-weight:700">{"أقل من" if AR else "Below"} 27°C (80°F)</td><td style="color:#4FC3F7">{"آمن" if AR else "Safe"}</td></tr>
+            <tr><td style="color:#81C784;padding:4px 8px;font-weight:700">27 — 32°C (80-90°F)</td><td style="color:#81C784">{"حذر" if AR else "Caution"}</td></tr>
+            <tr><td style="color:#FFD54F;padding:4px 8px;font-weight:700">33 — 40°C (91-103°F)</td><td style="color:#FFD54F">{"حذر شديد" if AR else "Extreme Caution"}</td></tr>
+            <tr><td style="color:#E65100;padding:4px 8px;font-weight:700">41 — 54°C (104-125°F)</td><td style="color:#E65100">{"خطر" if AR else "Danger"}</td></tr>
+            <tr><td style="color:#EF9A9A;padding:4px 8px;font-weight:700">{"أكثر من" if AR else "Above"} 54°C (125°F)</td><td style="color:#EF9A9A">{"خطر شديد جداً" if AR else "Extreme Danger"}</td></tr>
+        </table>
     </div>''', unsafe_allow_html=True)
 
     # Work/rest schedule based on WBGT
     st.markdown(f'<div style="color:{C["accent"]};font-size:14px;font-weight:700;margin:16px 0">{"📋 جدول العمل والراحة المقترح" if AR else "📋 Recommended Work/Rest Schedule"}</div>', unsafe_allow_html=True)
 
     work_cats = [
-        ("Light Work" if not AR else "عمل خفيف", "Control room, monitoring", 75 if wbgt<28 else 50 if wbgt<30 else 25 if wbgt<32 else 0),
-        ("Moderate Work" if not AR else "عمل متوسط", "Maintenance, inspection", 75 if wbgt<26 else 50 if wbgt<28 else 25 if wbgt<30 else 0),
-        ("Heavy Work" if not AR else "عمل شاق", "Equipment install, manual labor", 50 if wbgt<25 else 25 if wbgt<27 else 0),
+        ("Light Work" if not AR else "عمل خفيف", "Control room, monitoring", 75 if heat_index_c<33 else 50 if heat_index_c<41 else 25 if heat_index_c<54 else 0),
+        ("Moderate Work" if not AR else "عمل متوسط", "Maintenance, inspection", 75 if heat_index_c<30 else 50 if heat_index_c<36 else 25 if heat_index_c<41 else 0),
+        ("Heavy Work" if not AR else "عمل شاق", "Equipment install, manual labor", 50 if heat_index_c<30 else 25 if heat_index_c<33 else 0),
     ]
 
     for cat_name, cat_desc, work_pct in work_cats:
@@ -1574,7 +1652,7 @@ with tab9:
             w_fit = wh_r.get("FitnessLevel", "Fit")
 
             # Calculate max hours based on WBGT + profile
-            base_hours = 8 if wbgt < 27 else 6 if wbgt < 30 else 4 if wbgt < 33 else 2
+            base_hours = 8 if heat_index_c < 33 else 6 if heat_index_c < 41 else 4 if heat_index_c < 54 else 2
             if isinstance(w_age,(int,float)) and w_age >= 50: base_hours *= 0.5
             elif isinstance(w_age,(int,float)) and w_age >= 45: base_hours *= 0.7
             if isinstance(w_bmi,(int,float,float)) and w_bmi >= 30: base_hours *= 0.6
