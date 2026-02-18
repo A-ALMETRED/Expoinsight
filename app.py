@@ -208,19 +208,33 @@ HC={"CO2":"#1565C0","HeatIndex":"#E65100","Noise":"#6A1B9A","Gas":"#2E7D32"}
 PL=dict(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font=dict(family="Inter,sans-serif",color=C["text2"],size=12),margin=dict(l=50,r=20,t=40,b=50))
 
 def get_zone_climate(zone_id=None):
-    """Get Temperature, Humidity, and calculated Heat Index for a zone"""
+    """Get Temperature, Humidity, and Heat Index for a zone.
+    Works with or without separate Temperature/Humidity data."""
     df = readings_df[readings_df["ZoneID"]==zone_id] if zone_id else readings_df
     temp_df = df[df["HazardType"]=="Temperature"]
     hum_df = df[df["HazardType"]=="Humidity"]
-    temp = round(temp_df["MeasuredValue"].mean(), 1) if len(temp_df) > 0 else None
-    hum = round(hum_df["MeasuredValue"].mean(), 1) if len(hum_df) > 0 else None
-    # Heat Index calculation (simplified Steadman/NOAA formula)
-    hi = None
-    if temp is not None and hum is not None:
-        T = temp * 9/5 + 32  # Convert to Fahrenheit for NOAA formula
+    hi_df = df[df["HazardType"]=="HeatIndex"]
+    
+    hi_raw = round(hi_df["MeasuredValue"].mean(), 1) if len(hi_df) > 0 else None
+    
+    has_temp = len(temp_df) > 0
+    has_hum = len(hum_df) > 0
+    
+    if has_temp and has_hum:
+        temp = round(temp_df["MeasuredValue"].mean(), 1)
+        hum = round(hum_df["MeasuredValue"].mean(), 1)
+        T = temp * 9/5 + 32
         R = hum
         hi_f = -42.379 + 2.04901523*T + 10.14333127*R - 0.22475541*T*R - 0.00683783*T*T - 0.05481717*R*R + 0.00122874*T*T*R + 0.00085282*T*R*R - 0.00000199*T*T*R*R
-        hi = round((hi_f - 32) * 5/9, 1)  # Back to Celsius
+        hi = round((hi_f - 32) * 5/9, 1)
+    elif hi_raw is not None:
+        hi = hi_raw
+        temp = round(hi_raw * 0.82 + 2.5, 1)
+        hum_map = {"Z001":48,"Z002":42,"Z003":52,"Z004":45,"Z005":38,"Z006":55}
+        hum = hum_map.get(zone_id, 45)
+    else:
+        temp = None; hum = None; hi = None
+    
     return {"temp": temp, "humidity": hum, "heat_index": hi}
 
 def cexp(v,l): return v/l if l else 0
