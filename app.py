@@ -207,6 +207,22 @@ HO=["CO2","HeatIndex","Noise","Gas"]
 HC={"CO2":"#1565C0","HeatIndex":"#E65100","Noise":"#6A1B9A","Gas":"#2E7D32"}
 PL=dict(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font=dict(family="Inter,sans-serif",color=C["text2"],size=12),margin=dict(l=50,r=20,t=40,b=50))
 
+def get_zone_climate(zone_id=None):
+    """Get Temperature, Humidity, and calculated Heat Index for a zone"""
+    df = readings_df[readings_df["ZoneID"]==zone_id] if zone_id else readings_df
+    temp_df = df[df["HazardType"]=="Temperature"]
+    hum_df = df[df["HazardType"]=="Humidity"]
+    temp = round(temp_df["MeasuredValue"].mean(), 1) if len(temp_df) > 0 else None
+    hum = round(hum_df["MeasuredValue"].mean(), 1) if len(hum_df) > 0 else None
+    # Heat Index calculation (simplified Steadman/NOAA formula)
+    hi = None
+    if temp is not None and hum is not None:
+        T = temp * 9/5 + 32  # Convert to Fahrenheit for NOAA formula
+        R = hum
+        hi_f = -42.379 + 2.04901523*T + 10.14333127*R - 0.22475541*T*R - 0.00683783*T*T - 0.05481717*R*R + 0.00122874*T*T*R + 0.00085282*T*R*R - 0.00000199*T*T*R*R
+        hi = round((hi_f - 32) * 5/9, 1)  # Back to Celsius
+    return {"temp": temp, "humidity": hum, "heat_index": hi}
+
 def cexp(v,l): return v/l if l else 0
 def gstat(e):
     if e<0.8: return "Safe"
@@ -397,9 +413,13 @@ if crit_z_names:
     st.markdown(f'<div class="alert-bar"><span class="alert-blink">🚨</span><span>CRITICAL ALERT — Limits exceeded in: <strong>{", ".join(crit_z_names)}</strong></span></div>',unsafe_allow_html=True)
 
 # Global language toggle
+from zoneinfo import ZoneInfo
+riyadh_tz = ZoneInfo("Asia/Riyadh")
+riyadh_now = datetime.now(riyadh_tz)
+
 lc1, lc2 = st.columns([10,2])
 with lc1:
-    st.markdown(f'<div style="color:{C["text3"]};font-size:12px;margin-bottom:4px">🔄 Auto-refresh: 30s &nbsp;|&nbsp; 📡 {datetime.now().strftime("%H:%M:%S")}</div>',unsafe_allow_html=True)
+    st.markdown(f'<div style="color:{C["text3"]};font-size:12px;margin-bottom:4px">🔄 Auto-refresh: 30s &nbsp;|&nbsp; 🕐 {riyadh_now.strftime("%H:%M:%S")} (Riyadh) &nbsp;|&nbsp; 📅 {riyadh_now.strftime("%Y-%m-%d")}</div>',unsafe_allow_html=True)
 with lc2:
     LANG = st.selectbox("🌐", ["English", "العربية"], key="global_lang", label_visibility="collapsed")
 AR = LANG == "العربية"
@@ -407,7 +427,11 @@ AR = LANG == "العربية"
 # API Key — reads silently from environment variable (no UI shown)
 import os
 if "api_key" not in st.session_state:
-    st.session_state["api_key"] = os.environ.get("ANTHROPIC_API_KEY", "")
+    _key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not _key:
+        try: _key = st.secrets["ANTHROPIC_API_KEY"]
+        except: _key = ""
+    st.session_state["api_key"] = _key
 
 if AR:
     tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab9,tab_ask=st.tabs(["🏠 الرئيسية","📊 نظرة عامة","🏭 المناطق","🔬 المحاكاة","👷 العمال","🚨 التنبيهات","🎯 التنفيذي","🌡️ الإجهاد الحراري","🤖 اسألني"])
@@ -428,10 +452,10 @@ with tab1:
     c1,c2,c3=st.columns([3,5,3], gap="large")
     with c1:
         st.markdown(f'<div class="panel"><div class="panel-title">{"📋 مستويات التعرض الحالية" if AR else "📋 Current Exposure Levels"}</div>',unsafe_allow_html=True)
-        h='<table class="styled-table"><tr><th>Limit</th><th>Exposure</th><th>Status</th></tr>'
+        h='<table class="styled-table"><tr><th>Hazard</th><th>Limit</th><th>Exposure</th><th>Status</th></tr>'
         for s in stats:
             pb=pbar(s["ExposurePct"],s["Status"])
-            h+=f'<tr><td style="color:{C["text2"]}!important">{s["Limit"]}<br><span style="font-size:10px">{s["Unit"]}</span></td><td style="color:{stxt(s["Status"])}!important;font-weight:800">{s["ExposurePct"]:.0%}{pb}</td><td><span class="kpi-status status-{scss(s["Status"])}">{sicon(s["Status"])} {s["Status"]}</span></td></tr>'
+            h+=f'<tr><td style="color:{C["text1"]}!important;font-weight:700">{s["Icon"]} {s["DisplayName"]}</td><td style="color:{C["text2"]}!important">{s["Limit"]}<br><span style="font-size:10px">{s["Unit"]}</span></td><td style="color:{stxt(s["Status"])}!important;font-weight:800">{s["ExposurePct"]:.0%}{pb}</td><td><span class="kpi-status status-{scss(s["Status"])}">{sicon(s["Status"])} {s["Status"]}</span></td></tr>'
         h+='</table></div>'
         st.markdown(h,unsafe_allow_html=True)
     with c2:
@@ -453,6 +477,26 @@ with tab1:
         fig.update_layout(**PL,height=380,showlegend=False,annotations=[dict(text="<b>Risk</b>",x=.5,y=.5,font_size=18,font_color=C["text1"],showarrow=False)])
         st.plotly_chart(fig,use_container_width=True)
         st.markdown("</div>",unsafe_allow_html=True)
+
+    # CLIMATE BAR — Temperature + Humidity → Heat Index per zone
+    st.markdown(f'<div class="panel"><div class="panel-title">{"🌡️ المناخ الداخلي — الحرارة والرطوبة" if AR else "🌡️ Indoor Climate — Temperature & Humidity"}</div>',unsafe_allow_html=True)
+    clm_cols = st.columns(len(zones_df))
+    for i, (_, z) in enumerate(zones_df.iterrows()):
+        clm = get_zone_climate(z["ZoneID"])
+        with clm_cols[i]:
+            t_val = f"{clm['temp']}°C" if clm['temp'] else "N/A"
+            h_val = f"{clm['humidity']}%" if clm['humidity'] else "N/A"
+            hi_val = f"{clm['heat_index']}" if clm['heat_index'] else "N/A"
+            hi_color = "#EF5350" if clm['heat_index'] and clm['heat_index'] >= 40 else "#FFD54F" if clm['heat_index'] and clm['heat_index'] >= 32 else "#81C784"
+            st.markdown(f'''<div style="background:#0F172A;border:1px solid #1E3A5F;border-radius:12px;padding:12px;text-align:center">
+                <div style="font-size:11px;color:{C["text3"]};font-weight:700;margin-bottom:6px">{z["ZoneName"][:12]}</div>
+                <div style="display:flex;justify-content:space-around;gap:4px">
+                    <div><div style="font-size:9px;color:{C["text3"]}">🌡️ {"حرارة" if AR else "Temp"}</div><div style="font-size:14px;color:#E65100;font-weight:800">{t_val}</div></div>
+                    <div><div style="font-size:9px;color:{C["text3"]}">💧 {"رطوبة" if AR else "Hum"}</div><div style="font-size:14px;color:#1565C0;font-weight:800">{h_val}</div></div>
+                    <div><div style="font-size:9px;color:{C["text3"]}">🔥 {"مؤشر" if AR else "HI"}</div><div style="font-size:14px;color:{hi_color};font-weight:800">{hi_val}</div></div>
+                </div>
+            </div>''', unsafe_allow_html=True)
+    st.markdown("</div>",unsafe_allow_html=True)
 
     # FACILITY HEATMAP
     st.markdown(f'<div class="panel"><div class="panel-title">{"🏭 خريطة المنشأة الحرارية" if AR else "🏭 Facility Thermal Hazard Map"}</div>',unsafe_allow_html=True)
@@ -649,7 +693,7 @@ with tab4:
         The system will calculate the combined impact using the correct method for each hazard:</p>
         <div style="background:#0F172A;border-radius:12px;padding:14px 18px;margin-bottom:16px;font-size:12px;color:{C["text3"]};line-height:1.8">
         🔊 <strong style="color:#6A1B9A">Noise:</strong> Logarithmic addition → L = 10 × log₁₀(10^(L₁/10) + 10^(L₂/10)) — dBA لا تُجمع عادي<br>
-        🌡️ <strong style="color:#E65100">Heat:</strong> Takes the higher value (zone ambient vs equipment output) — الحرارة تعتمد على الأعلى<br>
+        🌡️ <strong style="color:#E65100">Heat:</strong> Radiation model → ΔT = (T_equip - T_zone) × 0.08 — المعدة تُشع حرارة لكن ما ترفع الزون لنفس درجتها<br>
         💨 <strong style="color:#1565C0">CO₂:</strong> Additive concentration (ppm adds to ambient) — التركيز يتراكم<br>
         ⚗️ <strong style="color:#2E7D32">Gas:</strong> Additive concentration (ppm adds to ambient) — التركيز يتراكم
         </div>''', unsafe_allow_html=True)
@@ -708,13 +752,17 @@ with tab4:
                 return round(combined, 1)
 
             elif hazard_type == "HeatIndex":
-                # Heat: take the maximum (dominant source) + small additive factor
-                # In reality, heat index is affected by the hottest source primarily
-                # Adding a small contribution: max + 10% of the difference
-                if equip_val > current_val:
-                    combined = equip_val + (current_val * 0.1)
-                else:
-                    combined = current_val + (equip_val * 0.1)
+                # Realistic heat transfer: equipment radiates heat into the zone
+                # but doesn't replace zone temperature.
+                # Formula: ΔT = (T_equip - T_zone) × radiation_factor
+                # radiation_factor depends on equipment size vs zone size (~0.05-0.15)
+                # Example: equipment at 80°C in a 40°C zone adds ~2-6°C, NOT 40°C
+                if equip_val <= current_val:
+                    return current_val  # equipment cooler than zone = no effect
+                delta_t = equip_val - current_val
+                radiation_factor = 0.08  # ~8% heat transfer (typical industrial equipment)
+                heat_gain = delta_t * radiation_factor
+                combined = current_val + heat_gain
                 return round(combined, 1)
 
             elif hazard_type in ["CO2", "Gas"]:
@@ -2385,7 +2433,7 @@ ExpoInsight هو نظام مراقبة الصحة المهنية لمحطات ا
                     import os
 
                     # Get API key from environment variable or sidebar
-                    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+                    api_key = os.environ.get("ANTHROPIC_API_KEY", "") or st.session_state.get("api_key", "")
                     if not api_key:
                         api_key = st.session_state.get("api_key", "")
 
