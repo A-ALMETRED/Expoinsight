@@ -224,20 +224,30 @@ def zname(zid):
     return r.iloc[0]["ZoneName"] if len(r)>0 else zid
 def zhstats(zone_id=None):
     ld=get_ld();ud=get_ud()
+    if not isinstance(ld,dict): ld={}
+    if not isinstance(ud,dict): ud={}
     df=readings_df[readings_df["ZoneID"]==zone_id] if zone_id else readings_df
     res=[]
     for h in HO:
-        hdf=df[df["HazardType"]==h]
-        try: c=float(hdf["MeasuredValue"].mean()) if len(hdf)>0 else 0.0
-        except: c=0.0
-        if pd.isna(c): c=0.0
-        try: l=float(ld.get(h,1)) if isinstance(ld,dict) else 1.0
-        except: l=1.0
-        u=str(ud.get(h,"")) if isinstance(ud,dict) else ""
-        e=float(c/l) if l>0 else 0.0
-        cv=round(float(c),1)
-        st_val=gstat(e)
-        res.append({"HazardType":h,"DisplayName":HD.get(h,h),"Icon":HI.get(h,""),"CurrentValue":cv,"Limit":l,"Unit":u,"ExposurePct":e,"Status":st_val})
+        try:
+            hdf=df[df["HazardType"]==h]
+            c=0.0
+            if len(hdf)>0:
+                val=hdf["MeasuredValue"].mean()
+                if val is not None and not pd.isna(val):
+                    c=float(val)
+            l=1.0
+            if h in ld:
+                lv=ld[h]
+                if lv is not None and not pd.isna(lv):
+                    l=float(lv)
+            u=str(ud.get(h,"")) if h in ud else ""
+            e=float(c/l) if l>0 else 0.0
+            cv=round(c,1)
+            st_val="Safe" if e<0.8 else "Warning" if e<1.0 else "Critical"
+            res.append({"HazardType":h,"DisplayName":HD.get(h,h),"Icon":HI.get(h,""),"CurrentValue":cv,"Limit":l,"Unit":u,"ExposurePct":e,"Status":st_val})
+        except Exception:
+            res.append({"HazardType":h,"DisplayName":HD.get(h,h),"Icon":"","CurrentValue":0.0,"Limit":1.0,"Unit":"","ExposurePct":0.0,"Status":"Safe"})
     return res
 def get_sparkline(zone_id,hazard,n=8):
     df=readings_df[readings_df["HazardType"]==hazard]
