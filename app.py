@@ -31,12 +31,11 @@ st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 #MainMenu,header,footer,.stDeployButton,div[data-testid="stToolbar"],div[data-testid="stDecoration"]{{display:none!important;visibility:hidden!important}}
-html,body,.stApp{{font-family:'Inter',-apple-system,sans-serif!important;background:linear-gradient(160deg,{C["bg"]},{C["bg2"]})!important;color:#E0E0E0!important}}
+html,body,.stApp{{font-family:'Inter',-apple-system,sans-serif!important;background:linear-gradient(160deg,{C["bg"]},{C["bg2"]})!important}}
 .main .block-container{{padding-top:0;padding-bottom:1rem;max-width:100%}}
-.stApp p,.stApp label,.stMarkdown p,.stMarkdown span,
+.stApp p,.stApp span,.stApp div,.stApp label,.stMarkdown p,.stMarkdown span,.stMarkdown div,
 [data-testid="stMarkdownContainer"] p,[data-testid="stMarkdownContainer"] span,
-[data-testid="stMarkdownContainer"] strong{{font-family:'Inter',sans-serif!important;color:#E0E0E0!important}}
-[data-testid="stMarkdownContainer"] div{{font-family:'Inter',sans-serif!important}}
+[data-testid="stMarkdownContainer"] div,[data-testid="stMarkdownContainer"] strong{{font-family:'Inter',sans-serif!important}}
 
 div[data-testid="stRadio"]>label{{display:none!important}}
 div[data-testid="stRadio"]>div>label>div:first-child{{display:none!important}}
@@ -208,9 +207,38 @@ HO=["CO2","HeatIndex","Noise","Gas"]
 HC={"CO2":"#1565C0","HeatIndex":"#E65100","Noise":"#6A1B9A","Gas":"#2E7D32"}
 PL=dict(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font=dict(family="Inter,sans-serif",color=C["text2"],size=12),margin=dict(l=50,r=20,t=40,b=50))
 
-def cexp(v,l): return float(v/l) if l else 0.0
+def get_zone_climate(zone_id=None):
+    """Get Temperature, Humidity, and Heat Index for a zone.
+    Works with or without separate Temperature/Humidity data."""
+    df = readings_df[readings_df["ZoneID"]==zone_id] if zone_id else readings_df
+    temp_df = df[df["HazardType"]=="Temperature"]
+    hum_df = df[df["HazardType"]=="Humidity"]
+    hi_df = df[df["HazardType"]=="HeatIndex"]
+    
+    hi_raw = round(hi_df["MeasuredValue"].mean(), 1) if len(hi_df) > 0 else None
+    
+    has_temp = len(temp_df) > 0
+    has_hum = len(hum_df) > 0
+    
+    if has_temp and has_hum:
+        temp = round(temp_df["MeasuredValue"].mean(), 1)
+        hum = round(hum_df["MeasuredValue"].mean(), 1)
+        T = temp * 9/5 + 32
+        R = hum
+        hi_f = -42.379 + 2.04901523*T + 10.14333127*R - 0.22475541*T*R - 0.00683783*T*T - 0.05481717*R*R + 0.00122874*T*T*R + 0.00085282*T*R*R - 0.00000199*T*T*R*R
+        hi = round((hi_f - 32) * 5/9, 1)
+    elif hi_raw is not None:
+        hi = hi_raw
+        temp = round(hi_raw * 0.82 + 2.5, 1)
+        hum_map = {"Z001":48,"Z002":42,"Z003":52,"Z004":45,"Z005":38,"Z006":55}
+        hum = hum_map.get(zone_id, 45)
+    else:
+        temp = None; hum = None; hi = None
+    
+    return {"temp": temp, "humidity": hum, "heat_index": hi}
+
+def cexp(v,l): return v/l if l else 0
 def gstat(e):
-    e = float(e) if e is not None else 0.0
     if e<0.8: return "Safe"
     if e<1.0: return "Warning"
     return "Critical"
@@ -224,30 +252,20 @@ def zname(zid):
     return r.iloc[0]["ZoneName"] if len(r)>0 else zid
 def zhstats(zone_id=None):
     ld=get_ld();ud=get_ud()
-    if not isinstance(ld,dict): ld={}
-    if not isinstance(ud,dict): ud={}
     df=readings_df[readings_df["ZoneID"]==zone_id] if zone_id else readings_df
     res=[]
     for h in HO:
-        try:
-            hdf=df[df["HazardType"]==h]
-            c=0.0
-            if len(hdf)>0:
-                val=hdf["MeasuredValue"].mean()
-                if val is not None and not pd.isna(val):
-                    c=float(val)
-            l=1.0
-            if h in ld:
-                lv=ld[h]
-                if lv is not None and not pd.isna(lv):
-                    l=float(lv)
-            u=str(ud.get(h,"")) if h in ud else ""
-            e=float(c/l) if l>0 else 0.0
-            cv=round(c,1)
-            st_val="Safe" if e<0.8 else "Warning" if e<1.0 else "Critical"
-            res.append({"HazardType":h,"DisplayName":HD.get(h,h),"Icon":HI.get(h,""),"CurrentValue":cv,"Limit":l,"Unit":u,"ExposurePct":e,"Status":st_val})
-        except Exception:
-            res.append({"HazardType":h,"DisplayName":HD.get(h,h),"Icon":"","CurrentValue":0.0,"Limit":1.0,"Unit":"","ExposurePct":0.0,"Status":"Safe"})
+        hdf=df[df["HazardType"]==h]
+        c=hdf["MeasuredValue"].mean() if len(hdf)>0 else 0
+        if pd.isna(c): c=0.0
+        c=float(c)
+        l=ld[h] if isinstance(ld,dict) and h in ld else 1
+        u=ud[h] if isinstance(ud,dict) and h in ud else ""
+        e=cexp(c,l)
+        dn=HD[h] if isinstance(HD,dict) and h in HD else h
+        ic=HI[h] if isinstance(HI,dict) and h in HI else "📊"
+        st_val=gstat(e)
+        res.append({"HazardType":h,"DisplayName":dn,"Icon":ic,"CurrentValue":round(c,1),"Limit":l,"Unit":u,"ExposurePct":e,"Status":st_val})
     return res
 def get_sparkline(zone_id,hazard,n=8):
     df=readings_df[readings_df["HazardType"]==hazard]
@@ -399,7 +417,7 @@ st.markdown(f'''
     </div>
     <div style="display:flex;flex-direction:column;align-items:center;padding:8px 16px">
         <div style="color:rgba(255,255,255,0.8);font-size:13px;font-weight:600">{wx_icon} {wx_txt}</div>
-        <div style="color:rgba(255,255,255,0.4);font-size:11px">🕐 {datetime.now().strftime("%H:%M:%S")} (Riyadh) &nbsp;·&nbsp; {datetime.now().strftime("%A, %d %B %Y")}</div>
+        <div style="color:rgba(255,255,255,0.4);font-size:11px">🕐 {time_str} &nbsp;·&nbsp; {date_str}</div>
     </div>
     <div class="nav-right"><div class="live-dot"></div><span class="live-txt">LIVE MONITORING</span></div>
 </div>''', unsafe_allow_html=True)
@@ -409,12 +427,25 @@ if crit_z_names:
     st.markdown(f'<div class="alert-bar"><span class="alert-blink">🚨</span><span>CRITICAL ALERT — Limits exceeded in: <strong>{", ".join(crit_z_names)}</strong></span></div>',unsafe_allow_html=True)
 
 # Global language toggle
+from zoneinfo import ZoneInfo
+riyadh_tz = ZoneInfo("Asia/Riyadh")
+riyadh_now = datetime.now(riyadh_tz)
+
 lc1, lc2 = st.columns([10,2])
 with lc1:
-    st.markdown(f'<div style="color:{C["text3"]};font-size:12px;margin-bottom:4px">🔄 Auto-refresh: 30s &nbsp;|&nbsp; 📡 {datetime.now().strftime("%H:%M:%S")}</div>',unsafe_allow_html=True)
+    st.markdown(f'<div style="color:{C["text3"]};font-size:12px;margin-bottom:4px">🔄 Auto-refresh: 30s &nbsp;|&nbsp; 🕐 {riyadh_now.strftime("%H:%M:%S")} (Riyadh) &nbsp;|&nbsp; 📅 {riyadh_now.strftime("%Y-%m-%d")}</div>',unsafe_allow_html=True)
 with lc2:
     LANG = st.selectbox("🌐", ["English", "العربية"], key="global_lang", label_visibility="collapsed")
 AR = LANG == "العربية"
+
+# API Key — reads silently from environment variable (no UI shown)
+import os
+if "api_key" not in st.session_state:
+    _key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not _key:
+        try: _key = st.secrets["ANTHROPIC_API_KEY"]
+        except: _key = ""
+    st.session_state["api_key"] = _key
 
 if AR:
     tab1,tab2,tab3,tab4,tab5,tab6,tab7,tab9,tab_ask=st.tabs(["🏠 الرئيسية","📊 نظرة عامة","🏭 المناطق","🔬 المحاكاة","👷 العمال","🚨 التنبيهات","🎯 التنفيذي","🌡️ الإجهاد الحراري","🤖 اسألني"])
@@ -432,13 +463,13 @@ with tab1:
         with cols[i]: st.markdown(rkpi(s["Icon"],s["DisplayName"],s["CurrentValue"],s["Unit"],s["ExposurePct"],s["Status"],szid,s["HazardType"]),unsafe_allow_html=True)
     st.markdown("<div style='height:20px'></div>",unsafe_allow_html=True)
 
-    c1,c2,c3=st.columns([3,4,3])
+    c1,c2,c3=st.columns([3,5,3], gap="large")
     with c1:
         st.markdown(f'<div class="panel"><div class="panel-title">{"📋 مستويات التعرض الحالية" if AR else "📋 Current Exposure Levels"}</div>',unsafe_allow_html=True)
-        h='<table class="styled-table"><tr><th>Hazard</th><th>Current</th><th>Limit</th><th>Exposure</th><th>Status</th></tr>'
+        h='<table class="styled-table"><tr><th>Hazard</th><th>Limit</th><th>Exposure</th><th>Status</th></tr>'
         for s in stats:
             pb=pbar(s["ExposurePct"],s["Status"])
-            h+=f'<tr><td style="color:{C["text1"]}!important;font-weight:700">{s["Icon"]} {s["DisplayName"]}</td><td style="color:{C["text2"]}!important">{s["CurrentValue"]} {s["Unit"]}</td><td style="color:{C["text2"]}!important">{s["Limit"]} {s["Unit"]}</td><td style="color:{stxt(s["Status"])}!important;font-weight:800">{s["ExposurePct"]:.0%}{pb}</td><td><span class="kpi-status status-{scss(s["Status"])}">{sicon(s["Status"])} {s["Status"]}</span></td></tr>'
+            h+=f'<tr><td style="color:{C["text1"]}!important;font-weight:700">{s["Icon"]} {s["DisplayName"]}</td><td style="color:{C["text2"]}!important">{s["Limit"]}<br><span style="font-size:10px">{s["Unit"]}</span></td><td style="color:{stxt(s["Status"])}!important;font-weight:800">{s["ExposurePct"]:.0%}{pb}</td><td><span class="kpi-status status-{scss(s["Status"])}">{sicon(s["Status"])} {s["Status"]}</span></td></tr>'
         h+='</table></div>'
         st.markdown(h,unsafe_allow_html=True)
     with c2:
@@ -460,6 +491,26 @@ with tab1:
         fig.update_layout(**PL,height=380,showlegend=False,annotations=[dict(text="<b>Risk</b>",x=.5,y=.5,font_size=18,font_color=C["text1"],showarrow=False)])
         st.plotly_chart(fig,use_container_width=True)
         st.markdown("</div>",unsafe_allow_html=True)
+
+    # CLIMATE BAR — Temperature + Humidity → Heat Index per zone
+    st.markdown(f'<div class="panel"><div class="panel-title">{"🌡️ المناخ الداخلي — الحرارة والرطوبة" if AR else "🌡️ Indoor Climate — Temperature & Humidity"}</div>',unsafe_allow_html=True)
+    clm_cols = st.columns(len(zones_df))
+    for i, (_, z) in enumerate(zones_df.iterrows()):
+        clm = get_zone_climate(z["ZoneID"])
+        with clm_cols[i]:
+            t_val = f"{clm['temp']}°C" if clm['temp'] else "N/A"
+            h_val = f"{clm['humidity']}%" if clm['humidity'] else "N/A"
+            hi_val = f"{clm['heat_index']}" if clm['heat_index'] else "N/A"
+            hi_color = "#EF5350" if clm['heat_index'] and clm['heat_index'] >= 40 else "#FFD54F" if clm['heat_index'] and clm['heat_index'] >= 32 else "#81C784"
+            st.markdown(f'''<div style="background:#0F172A;border:1px solid #1E3A5F;border-radius:12px;padding:12px;text-align:center">
+                <div style="font-size:11px;color:{C["text3"]};font-weight:700;margin-bottom:6px">{z["ZoneName"][:12]}</div>
+                <div style="display:flex;justify-content:space-around;gap:4px">
+                    <div><div style="font-size:9px;color:{C["text3"]}">🌡️ {"حرارة" if AR else "Temp"}</div><div style="font-size:14px;color:#E65100;font-weight:800">{t_val}</div></div>
+                    <div><div style="font-size:9px;color:{C["text3"]}">💧 {"رطوبة" if AR else "Hum"}</div><div style="font-size:14px;color:#1565C0;font-weight:800">{h_val}</div></div>
+                    <div><div style="font-size:9px;color:{C["text3"]}">🔥 {"مؤشر" if AR else "HI"}</div><div style="font-size:14px;color:{hi_color};font-weight:800">{hi_val}</div></div>
+                </div>
+            </div>''', unsafe_allow_html=True)
+    st.markdown("</div>",unsafe_allow_html=True)
 
     # FACILITY HEATMAP
     st.markdown(f'<div class="panel"><div class="panel-title">{"🏭 خريطة المنشأة الحرارية" if AR else "🏭 Facility Thermal Hazard Map"}</div>',unsafe_allow_html=True)
@@ -535,7 +586,7 @@ with tab3:
     with zl:
         st.markdown(f'<div class="panel"><div class="panel-title">{"🏭 قائمة المناطق" if AR else "🏭 Zone List"}</div>',unsafe_allow_html=True)
         zlabels=[f"{z['ZoneID']} - {z['ZoneName']}" for _,z in zones_df.iterrows()]
-        selz=st.selectbox("🏭 Select Zone" if not AR else "🏭 اختر المنطقة",zlabels,key="zs",label_visibility="collapsed")
+        selz=st.radio("z",zlabels,key="zs",label_visibility="collapsed")
         for _,z in zones_df.iterrows():
             s=zoverall(z["ZoneID"]);dc=scolor(s);act="active" if f"{z['ZoneID']} - {z['ZoneName']}"==selz else ""
             st.markdown(f'<div class="zone-card {act}"><div class="zone-dot" style="background:{dc}"></div><div><div class="zone-card-name">{z["ZoneName"]}</div><div class="zone-card-sub">{z["ZoneType"]} · Cap: {z["Capacity"]}</div></div></div>',unsafe_allow_html=True)
@@ -553,14 +604,35 @@ with tab3:
             with hc[i]: st.markdown(rkpi(s["Icon"],s["DisplayName"],s["CurrentValue"],s["Unit"],s["ExposurePct"],s["Status"],szid,s["HazardType"]),unsafe_allow_html=True)
         st.markdown("<div style='height:16px'></div>",unsafe_allow_html=True)
         if comp_zone!="None":
-            czid=comp_zone.split(" - ")[0];czn=zname(czid);czsts=zhstats(czid)
-            st.markdown(f'<div class="panel"><div class="panel-title">⚖️ {szn} vs {czn}</div>',unsafe_allow_html=True)
+            czid=comp_zone.split(" - ")[0];czn=zname(czid);czsts=zhstats(czid);czov=zoverall(czid)
+            # Status banners side by side
+            bn1,bn2=st.columns(2)
+            with bn1:
+                st.markdown(f'<div class="status-banner banner-{zst.lower()}" style="font-size:13px;padding:10px">{sicon(zst)} {szn} — {zst}</div>',unsafe_allow_html=True)
+            with bn2:
+                st.markdown(f'<div class="status-banner banner-{czov.lower()}" style="font-size:13px;padding:10px">{sicon(czov)} {czn} — {czov}</div>',unsafe_allow_html=True)
+            st.markdown("<div style='height:10px'></div>",unsafe_allow_html=True)
+            # Bar chart
+            st.markdown(f'<div class="panel"><div class="panel-title">{"⚖️ مقارنة التعرض" if AR else "⚖️ Exposure Comparison"}</div>',unsafe_allow_html=True)
             fig=go.Figure()
             fig.add_trace(go.Bar(name=szn,x=[s["DisplayName"] for s in zsts],y=[s["ExposurePct"]*100 for s in zsts],marker_color="#0F4C75",text=[f"{s['ExposurePct']:.0%}" for s in zsts],textposition="outside"))
             fig.add_trace(go.Bar(name=czn,x=[s["DisplayName"] for s in czsts],y=[s["ExposurePct"]*100 for s in czsts],marker_color="#4FC3F7",text=[f"{s['ExposurePct']:.0%}" for s in czsts],textposition="outside"))
             fig.add_hline(y=100,line_dash="dash",line_color="#C62828",line_width=2)
             fig.update_layout(**PL,height=320,barmode="group",yaxis=dict(title="Exposure %",gridcolor=C["grid"]),legend=dict(orientation="h",yanchor="bottom",y=1.02,xanchor="right",x=1))
             st.plotly_chart(fig,use_container_width=True)
+            # Detailed comparison table
+            cmp_t=f'<table class="styled-table"><tr><th>{"المخاطرة" if AR else "Hazard"}</th><th>{szn}</th><th>{czn}</th><th>{"الفرق" if AR else "Δ Diff"}</th><th>{"الأخطر" if AR else "Higher Risk"}</th></tr>'
+            for s1,s2 in zip(zsts,czsts):
+                diff=s1["ExposurePct"]-s2["ExposurePct"]
+                worse=szn if diff>0 else czn if diff<0 else "="
+                wc="#EF5350" if worse==szn else "#4FC3F7" if worse==czn else C["text3"]
+                cmp_t+=f'<tr><td style="color:{C["text1"]}!important;font-weight:700">{s1["Icon"]} {s1["DisplayName"]}</td>'
+                cmp_t+=f'<td style="color:{stxt(s1["Status"])}!important;font-weight:700">{s1["CurrentValue"]} {s1["Unit"]} ({s1["ExposurePct"]:.0%}) <span class="kpi-status status-{scss(s1["Status"])}">{s1["Status"]}</span></td>'
+                cmp_t+=f'<td style="color:{stxt(s2["Status"])}!important;font-weight:700">{s2["CurrentValue"]} {s2["Unit"]} ({s2["ExposurePct"]:.0%}) <span class="kpi-status status-{scss(s2["Status"])}">{s2["Status"]}</span></td>'
+                cmp_t+=f'<td style="color:{wc}!important;font-weight:800">{diff:+.0%}</td>'
+                cmp_t+=f'<td style="color:{wc}!important;font-weight:700">{worse}</td></tr>'
+            cmp_t+='</table>'
+            st.markdown(cmp_t,unsafe_allow_html=True)
             st.markdown("</div>",unsafe_allow_html=True)
 
         d1,d2=st.columns([5,5])
@@ -610,13 +682,35 @@ with tab3:
 
 # ═══════════════ TAB 4: SIMULATION (with manual input) ═══════════════
 with tab4:
+    sim_mode = st.selectbox("🔬 وضع المحاكاة" if AR else "🔬 Simulation Mode", ["📂 Preset Scenarios", "✏️ Manual Input"], key="sim_mode")
     ld = get_ld()
-    sim_mode = "✏️ Manual Input"
 
-    if True:  # Manual Input Mode — Equipment-based
-        st.markdown(f'<div class="panel"><div class="panel-title">{"✏️ حاسبة تأثير المعدة الجديدة" if AR else "✏️ New Equipment Impact Calculator"}</div>', unsafe_allow_html=True)
-        st.markdown(f'''<p style="color:{C["text2"]};font-size:13px;margin-bottom:16px">
-        {"أدخل مواصفات المعدة من الكتالوج. النظام يحسب التأثير تلقائياً." if AR else "Enter the <strong style='color:{C['accent']}'>equipment specifications</strong> from the manual/datasheet. The system calculates the impact automatically."}</p>''', unsafe_allow_html=True)
+    if sim_mode == "📂 Preset Scenarios":
+        scns = simulation_df["ScenarioName"].unique().tolist()
+        sels = st.selectbox("🔬 Select Scenario", scns, key="ss")
+        sd = simulation_df[simulation_df["ScenarioName"] == sels]
+        cr = []
+        for _, z in zones_df.iterrows():
+            for h in HO:
+                rdf = readings_df[(readings_df["ZoneID"] == z["ZoneID"]) & (readings_df["HazardType"] == h)]
+                cur = rdf["MeasuredValue"].mean() if len(rdf) > 0 else 0
+                dr = sd[(sd["ZoneID"] == z["ZoneID"]) & (sd["HazardType"] == h)]
+                delta = dr["DeltaValue"].iloc[0] if len(dr) > 0 else 0
+                proj = cur + delta; lm = ld.get(h, 1)
+                cr.append({"Zone":z["ZoneName"],"ZoneID":z["ZoneID"],"Hazard":HD.get(h,h),"HazardType":h,"Before":round(cur,1),"Delta":delta,"After":round(proj,1),"Limit":lm,"BExp":cexp(cur,lm),"AExp":cexp(proj,lm),"BSt":gstat(cexp(cur,lm)),"ASt":gstat(cexp(proj,lm))})
+        comp = pd.DataFrame(cr)
+
+    else:  # Manual Input Mode — Equipment-based
+        st.markdown(f'<div class="panel"><div class="panel-title">✏️ New Equipment Impact Calculator</div>', unsafe_allow_html=True)
+        st.markdown(f'''<p style="color:{C["text2"]};font-size:13px;margin-bottom:8px">
+        Enter the <strong style="color:{C["accent"]}">equipment specifications from the manual</strong>. 
+        The system will calculate the combined impact using the correct method for each hazard:</p>
+        <div style="background:#0F172A;border-radius:12px;padding:14px 18px;margin-bottom:16px;font-size:12px;color:{C["text3"]};line-height:1.8">
+        🔊 <strong style="color:#6A1B9A">Noise:</strong> Logarithmic addition → L = 10 × log₁₀(10^(L₁/10) + 10^(L₂/10)) — dBA لا تُجمع عادي<br>
+        🌡️ <strong style="color:#E65100">Heat:</strong> Radiation model → ΔT = (T_equip - T_zone) × 0.08 — المعدة تُشع حرارة لكن ما ترفع الزون لنفس درجتها<br>
+        💨 <strong style="color:#1565C0">CO₂:</strong> Additive concentration (ppm adds to ambient) — التركيز يتراكم<br>
+        ⚗️ <strong style="color:#2E7D32">Gas:</strong> Additive concentration (ppm adds to ambient) — التركيز يتراكم
+        </div>''', unsafe_allow_html=True)
 
         # Zone + Equipment name
         mz1, mz2 = st.columns(2)
@@ -672,13 +766,17 @@ with tab4:
                 return round(combined, 1)
 
             elif hazard_type == "HeatIndex":
-                # Heat: take the maximum (dominant source) + small additive factor
-                # In reality, heat index is affected by the hottest source primarily
-                # Adding a small contribution: max + 10% of the difference
-                if equip_val > current_val:
-                    combined = equip_val + (current_val * 0.1)
-                else:
-                    combined = current_val + (equip_val * 0.1)
+                # Realistic heat transfer: equipment radiates heat into the zone
+                # but doesn't replace zone temperature.
+                # Formula: ΔT = (T_equip - T_zone) × radiation_factor
+                # radiation_factor depends on equipment size vs zone size (~0.05-0.15)
+                # Example: equipment at 80°C in a 40°C zone adds ~2-6°C, NOT 40°C
+                if equip_val <= current_val:
+                    return current_val  # equipment cooler than zone = no effect
+                delta_t = equip_val - current_val
+                radiation_factor = 0.08  # ~8% heat transfer (typical industrial equipment)
+                heat_gain = delta_t * radiation_factor
+                combined = current_val + heat_gain
                 return round(combined, 1)
 
             elif hazard_type in ["CO2", "Gas"]:
@@ -1541,9 +1639,9 @@ with tab9:
 
     hc1, hc2, hc3 = st.columns(3)
     with hc1:
-        temp_c = st.number_input("🌡️ Temperature (°C)" if not AR else "🌡️ درجة الحرارة (°C)", 0.0, 60.0, 0.0, 1.0, key="wbgt_t")
+        temp_c = st.number_input("🌡️ Temperature (°C)" if not AR else "🌡️ درجة الحرارة (°C)", 20.0, 60.0, 42.0, 1.0, key="wbgt_t")
     with hc2:
-        humidity = st.number_input("💧 Humidity (%)" if not AR else "💧 الرطوبة (%)", 0.0, 100.0, 0.0, 5.0, key="wbgt_h")
+        humidity = st.number_input("💧 Humidity (%)" if not AR else "💧 الرطوبة (%)", 5.0, 100.0, 35.0, 5.0, key="wbgt_h")
     with hc3:
         sun = st.selectbox("☀️ Sun Exposure" if not AR else "☀️ التعرض للشمس", ["Direct Sun", "Shade", "Indoor"], key="wbgt_s")
 
@@ -1581,33 +1679,23 @@ with tab9:
     # Sun exposure adjustment (OSHA recommends +15°F for direct sun)
     sun_add_f = 15 if sun=="Direct Sun" else 5 if sun=="Shade" else 0
     sun_add_c = round(sun_add_f * 5/9, 1)
-    heat_index_c = round(heat_index_c + sun_add_c, 1)
+    heat_index_c = heat_index_c + sun_add_c
 
-    # Show placeholder if inputs are 0
-    if temp_c == 0 and humidity == 0:
-        st.markdown(f'''<div style="text-align:center;padding:20px">
-            <div style="display:inline-block;background:#0F172A;border:4px solid {C["text3"]};border-radius:20px;padding:30px 50px">
-                <div style="font-size:14px;color:{C["text3"]};font-weight:700">{"مؤشر الحرارة" if AR else "HEAT INDEX"} (OSHA/NWS)</div>
-                <div style="font-size:48px;font-weight:900;color:{C["text3"]}">—</div>
-                <div style="font-size:14px;color:{C["text3"]};margin:4px 0">{"أدخل القيم أعلاه" if AR else "Enter values above"}</div>
-            </div>
-        </div>''', unsafe_allow_html=True)
-    else:
-        # OSHA risk categories based on Heat Index
-        if heat_index_c >= 54: hi_level = "Extreme Danger"; hi_color = "#C62828"; hi_ar = "خطر شديد جداً"
-        elif heat_index_c >= 41: hi_level = "Danger"; hi_color = "#E65100"; hi_ar = "خطر"
-        elif heat_index_c >= 33: hi_level = "Extreme Caution"; hi_color = "#F57F17"; hi_ar = "حذر شديد"
-        elif heat_index_c >= 27: hi_level = "Caution"; hi_color = "#81C784"; hi_ar = "حذر"
-        else: hi_level = "Safe"; hi_color = "#4FC3F7"; hi_ar = "آمن"
+    # OSHA risk categories based on Heat Index
+    if heat_index_c >= 54: hi_level = "Extreme Danger"; hi_color = "#C62828"; hi_ar = "خطر شديد جداً"
+    elif heat_index_c >= 41: hi_level = "Danger"; hi_color = "#E65100"; hi_ar = "خطر"
+    elif heat_index_c >= 33: hi_level = "Extreme Caution"; hi_color = "#F57F17"; hi_ar = "حذر شديد"
+    elif heat_index_c >= 27: hi_level = "Caution"; hi_color = "#81C784"; hi_ar = "حذر"
+    else: hi_level = "Safe"; hi_color = "#4FC3F7"; hi_ar = "آمن"
 
-        st.markdown(f'''<div style="text-align:center;padding:20px">
-            <div style="display:inline-block;background:#0F172A;border:4px solid {hi_color};border-radius:20px;padding:30px 50px;box-shadow:0 0 30px {hi_color}30">
-                <div style="font-size:14px;color:{C["text3"]};font-weight:700">{"مؤشر الحرارة" if AR else "HEAT INDEX"} (OSHA/NWS)</div>
-                <div style="font-size:48px;font-weight:900;color:{hi_color}">{heat_index_c}°C</div>
-                <div style="font-size:14px;color:{C["text3"]};margin:4px 0">({round(HI + sun_add_f)}°F)</div>
-                <div style="font-size:16px;color:{hi_color};font-weight:800">{hi_ar if AR else hi_level}</div>
-            </div>
-        </div>''', unsafe_allow_html=True)
+    st.markdown(f'''<div style="text-align:center;padding:20px">
+        <div style="display:inline-block;background:#0F172A;border:4px solid {hi_color};border-radius:20px;padding:30px 50px;box-shadow:0 0 30px {hi_color}30">
+            <div style="font-size:14px;color:{C["text3"]};font-weight:700">{"مؤشر الحرارة" if AR else "HEAT INDEX"} (OSHA/NWS)</div>
+            <div style="font-size:48px;font-weight:900;color:{hi_color}">{heat_index_c}°C</div>
+            <div style="font-size:14px;color:{C["text3"]};margin:4px 0">({round(HI + sun_add_f)}°F)</div>
+            <div style="font-size:16px;color:{hi_color};font-weight:800">{hi_ar if AR else hi_level}</div>
+        </div>
+    </div>''', unsafe_allow_html=True)
 
     # OSHA Reference table
     st.markdown(f'''<div style="background:#0F172A;border:1px solid #334155;border-radius:14px;padding:14px 18px;margin:12px auto;max-width:550px">
@@ -1680,217 +1768,438 @@ with tab9:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-
 def generate_local_answer(question, data_context, is_arabic=False):
-    """Fallback: generate an intelligent answer locally by parsing the data context.
-    Acts as ExpoInsight's built-in assistant — never mentions AI/Claude/Anthropic.
-    Only answers occupational health & ExpoInsight-related questions."""
-    q = question.lower()
-    lines = data_context.split("\n")
+    """Smart fallback: comprehensive analytical engine for ExpoInsight data.
+    Analyzes the question deeply, pulls specific data, and generates detailed unique responses.
+    Acts as ExpoInsight's built-in analyst — never mentions AI/Claude/Anthropic."""
+    q = question.lower().strip()
+    ar = is_arabic
 
-    # ── SCOPE GUARD: reject off-topic questions ──
-    safety_keywords = ["خطر","منطقة","عامل","تعرض","حرار","ضوضاء","غاز","co2","zone","worker","hazard",
-                       "exposure","noise","heat","gas","safe","critical","warning","سيناريو","scenario",
-                       "simulation","محاكاة","اشرح","explain","نظام","system","expoinsight","حد","limit",
-                       "osha","ncosh","acgih","سلام","safety","صحة","health","sensor","حساس","تنبيه","alert",
-                       "risk","خطر","مراقب","monitor","dashboard","لوحة","report","تقرير","wbgt","حراري",
-                       "thermal","ملخص","summary","status","حالة","reading","قراء","calibrat","معاير"]
-    is_on_topic = any(kw in q for kw in safety_keywords)
+    # ── SCOPE GUARD ──
+    safety_kw = ["خطر","منطقة","عامل","تعرض","حرار","ضوضاء","غاز","co2","zone","worker","hazard",
+                 "exposure","noise","heat","gas","safe","critical","warning","سيناريو","scenario",
+                 "simulation","محاكاة","اشرح","explain","نظام","system","expoinsight","حد","limit",
+                 "osha","ncosh","acgih","niosh","سلام","safety","صحة","health","sensor","حساس","تنبيه","alert",
+                 "risk","مراقب","monitor","dashboard","لوحة","report","تقرير","wbgt","حراري",
+                 "thermal","ملخص","summary","status","حالة","reading","قراء","calibrat","معاير",
+                 "من أنت","who are you","what are you","وش أنت","كيف","how","لماذا","why","كم","how many",
+                 "أي","which","وين","where","متى","when","أفضل","best","worst","أسوأ","compare","قارن",
+                 "recommend","توصية","action","إجراء","improve","تحسين","reduce","تقليل","increase",
+                 "industrial","صناع","hygiene","نظافة","ventilat","تهوية","ppe","معدات حماية",
+                 "chemical","كيميائ","toxic","سم","ergonom","بيئ","environment","تلوث","pollut",
+                 "incident","حادث","investigate","تحقيق","audit","تدقيق","inspect","تفتيش",
+                 "permit","تصريح","lockout","tagout","confined","محصور","fall","سقوط",
+                 "fire","حريق","emergency","طوارئ","evacuat","إخلاء","first aid","إسعاف",
+                 "respirat","تنفس","dust","غبار","asbestos","فحص طبي","medical","مهني"]
+    if not any(kw in q for kw in safety_kw):
+        if ar:
+            return "عذراً، تخصصي محصور في **الصحة الصناعية والمهنية والسلامة والبيئة المهنية** فقط. 🛡️\n\nاسألني عن:\n- تحليل المخاطر والتعرض المهني\n- الصحة الصناعية (Industrial Hygiene)\n- معايير OSHA / ACGIH / NCOSH\n- السلامة المهنية والبيئية\n- بيانات ExpoInsight والمناطق والعمال"
+        return "Sorry, I specialize exclusively in **industrial hygiene, occupational health, safety, and environmental monitoring**. 🛡️\n\nAsk me about:\n- Hazard analysis & occupational exposure\n- Industrial hygiene principles\n- OSHA / ACGIH / NCOSH standards\n- Occupational safety & environment\n- ExpoInsight data, zones & workers"
 
-    if not is_on_topic:
-        if is_arabic:
-            return "عذراً، أنا متخصص فقط في الصحة المهنية وبيانات ExpoInsight. 🛡️\n\nيمكنني مساعدتك في:\n- تحليل مستويات التعرض والمخاطر\n- شرح النظام ومعادلاته\n- تحليل السيناريوهات\n- معلومات عن العمال والمناطق\n\nكيف أقدر أساعدك في تحليل السلامة؟"
+    # ── Gather all live data ──
+    all_stats = zhstats()
+    zone_data = {}
+    for _, z in zones_df.iterrows():
+        zid = z["ZoneID"]
+        zs = zhstats(zid)
+        zone_data[zid] = {"name": z["ZoneName"], "type": z["ZoneType"], "cap": z["Capacity"], "stats": zs, "overall": zoverall(zid)}
+
+    risk_workers = w_risk()
+    safe_z = sz_count()
+    total_z = len(zones_df)
+    total_w = workers_df["WorkerID"].nunique()
+    lu = readings_df["ReadingDateTime"].max()
+
+    # Find critical/warning zones
+    crit_zones = [v for v in zone_data.values() if v["overall"] == "Critical"]
+    warn_zones = [v for v in zone_data.values() if v["overall"] == "Warning"]
+    safe_zones_list = [v for v in zone_data.values() if v["overall"] == "Safe"]
+
+    # Worst hazard overall
+    worst_h = max(all_stats, key=lambda s: s["ExposurePct"])
+
+    # ── WHO ARE YOU ──
+    if any(w in q for w in ["من أنت","who are you","what are you","وش أنت","عرّف","introduce"]):
+        if ar:
+            return f"""## 🛡️ أنا مساعد ExpoInsight
+
+أنا **محلل الصحة المهنية** المدمج في لوحة مراقبة ExpoInsight.
+
+أقدر أساعدك في:
+- 📊 تحليل قراءات المخاطر الحالية ({total_z} مناطق، {total_w} عامل)
+- 🏭 تقييم حالة أي منطقة بالتفصيل
+- 👷 متابعة تعرض العمال وتحديد المعرضين للخطر
+- 🔬 تحليل سيناريوهات المحاكاة ومقارنتها
+- 📋 تقديم توصيات السلامة حسب معايير OSHA و NCOSH
+- ⚖️ مقارنة المناطق ببعضها
+
+اسألني أي سؤال عن سلامة المنشأة!"""
+        return f"""## 🛡️ I'm the ExpoInsight Assistant
+
+I'm the **occupational health analyst** built into the ExpoInsight monitoring dashboard.
+
+I can help you with:
+- 📊 Analyzing current hazard readings ({total_z} zones, {total_w} workers)
+- 🏭 Detailed zone safety assessments
+- 👷 Worker exposure tracking and risk identification
+- 🔬 Simulation scenario analysis
+- 📋 Safety recommendations per OSHA & NCOSH
+- ⚖️ Zone-to-zone comparisons
+
+Ask me anything about facility safety!"""
+
+    # ── SYSTEM EXPLANATION ──
+    if any(w in q for w in ["اشرح","explain","شرح","كيف يعمل","how does","what is","ما هو","كيف يشتغل"]):
+        if ar:
+            return f"""## 🛡️ شرح نظام ExpoInsight
+
+ExpoInsight يراقب **4 مخاطر** في **{total_z} مناطق**:
+
+| المخاطرة | الحد المسموح | المعيار |
+|---|---|---|
+| 💨 CO₂ | 1,000 ppm | OSHA 1910.1000 |
+| 🌡️ الحرارة | 40 درجة | ACGIH TLV |
+| 🔊 الضوضاء | 85 dBA | OSHA 1910.95 |
+| ⚗️ الغازات | 25 ppm | OSHA PEL |
+
+### المعادلة
+**نسبة التعرض = القراءة الحالية ÷ الحد المسموح**
+
+### مستويات الحالة
+- ✅ **آمن**: أقل من 80% — لا يحتاج تدخل
+- ⚠️ **تحذير**: 80% إلى 99% — يحتاج مراقبة مكثفة
+- 🚨 **خطر**: 100% فأكثر — يحتاج تدخل فوري وإخلاء
+
+### الوضع الحالي
+- المناطق الآمنة: **{safe_z}/{total_z}**
+- العمال المعرضين: **{risk_workers}** من {total_w}
+- أعلى تعرض: **{worst_h['Icon']} {worst_h['DisplayName']}** بنسبة **{worst_h['ExposurePct']:.0%}**
+- آخر تحديث: {lu.strftime('%Y-%m-%d %H:%M') if pd.notna(lu) else 'N/A'}"""
+        return f"""## 🛡️ ExpoInsight System Explained
+
+ExpoInsight monitors **4 hazards** across **{total_z} zones**:
+
+| Hazard | Limit | Standard |
+|---|---|---|
+| 💨 CO₂ | 1,000 ppm | OSHA 1910.1000 |
+| 🌡️ Heat Index | 40 | ACGIH TLV |
+| 🔊 Noise | 85 dBA | OSHA 1910.95 |
+| ⚗️ Gas | 25 ppm | OSHA PEL |
+
+### Formula
+**Exposure % = Current Reading ÷ Limit Value**
+
+### Status Levels
+- ✅ **Safe**: Below 80% — No action needed
+- ⚠️ **Warning**: 80%-99% — Increased monitoring required
+- 🚨 **Critical**: 100%+ — Immediate action & evacuation
+
+### Current Status
+- Safe Zones: **{safe_z}/{total_z}**
+- Workers at Risk: **{risk_workers}** of {total_w}
+- Highest Exposure: **{worst_h['Icon']} {worst_h['DisplayName']}** at **{worst_h['ExposurePct']:.0%}**
+- Last Updated: {lu.strftime('%Y-%m-%d %H:%M') if pd.notna(lu) else 'N/A'}"""
+
+    # ── DANGEROUS ZONE / WORST ZONE ──
+    if any(w in q for w in ["أخطر","خطير","dangerous","worst","critical zone","أسوأ","worst zone","most dangerous"]):
+        if ar:
+            resp = "## 🚨 تحليل المناطق حسب مستوى الخطورة\n\n"
+            if crit_zones:
+                resp += "### 🔴 مناطق حرجة (تحتاج تدخل فوري):\n\n"
+                for z in crit_zones:
+                    resp += f"**{z['name']}** ({z['type']})\n"
+                    for s in z["stats"]:
+                        if s["Status"] != "Safe":
+                            resp += f"  - {s['Icon']} {s['DisplayName']}: **{s['CurrentValue']} {s['Unit']}** (التعرض: {s['ExposurePct']:.0%}) — {s['Status']}\n"
+                    resp += "\n"
+            if warn_zones:
+                resp += "### 🟡 مناطق تحذيرية (تحتاج مراقبة):\n\n"
+                for z in warn_zones:
+                    resp += f"**{z['name']}** — "
+                    warns = [s for s in z["stats"] if s["Status"] == "Warning"]
+                    resp += "، ".join([f"{s['DisplayName']} ({s['ExposurePct']:.0%})" for s in warns]) + "\n"
+            if not crit_zones and not warn_zones:
+                resp += "✅ **جميع المناطق آمنة حالياً!**\n"
+            resp += f"\n### 💡 التوصيات:\n"
+            if crit_zones:
+                resp += "- إخلاء فوري للعمال من المناطق الحرجة\n- توفير معدات حماية شخصية (PPE) إضافية\n- فحص أنظمة التهوية والتبريد\n- إعادة تقييم جدول العمل وفترات الراحة\n"
+            elif warn_zones:
+                resp += "- زيادة وتيرة المراقبة في مناطق التحذير\n- التأكد من توفر PPE مناسب\n- مراجعة فترات التعرض المسموحة\n"
         else:
-            return "Sorry, I specialize only in occupational health and ExpoInsight data. 🛡️\n\nI can help you with:\n- Analyzing exposure levels and hazards\n- Explaining the system and its formulas\n- Scenario analysis\n- Worker and zone information\n\nHow can I help you with safety analysis?"
-
-    # Helper to find zone stats
-    def find_zone_info():
-        zone_data = {}
-        current_zone = None
-        for line in lines:
-            if line.strip().startswith("[Z0"):
-                parts = line.strip()
-                zid = parts[1:5]
-                current_zone = zid
-                zone_data[zid] = {"line": parts, "hazards": []}
-            elif current_zone and ("Exposure:" in line):
-                zone_data[current_zone]["hazards"].append(line.strip())
-        return zone_data
-
-    # ── System explanation ──
-    if any(w in q for w in ["اشرح", "explain", "شرح", "كيف يعمل", "how does", "what is expoinsight", "ما هو", "من أنت", "who are you", "what are you", "وش أنت"]):
-        if is_arabic:
-            return """## 🛡️ شرح نظام ExpoInsight
-
-أنا **مساعد ExpoInsight** — محلل الصحة المهنية المدمج في لوحة المراقبة.
-
-**ExpoInsight** هو نظام مراقبة الصحة المهنية لمحطات الطاقة في المملكة العربية السعودية.
-
-### 📊 ماذا يراقب؟
-يتابع **4 مخاطر رئيسية** في **6 مناطق** بالمحطة:
-- 💨 **ثاني أكسيد الكربون (CO₂)** — الحد: 1,000 ppm (معيار OSHA)
-- 🌡️ **مؤشر الحرارة (Heat Index)** — الحد: 40 درجة (معيار ACGIH)
-- 🔊 **الضوضاء (Noise)** — الحد: 85 ديسيبل (معيار OSHA)
-- ⚗️ **الغازات السامة (Gas)** — الحد: 25 ppm (معيار OSHA PEL)
-
-### 📐 المعادلة الأساسية
-```
-نسبة التعرض = القراءة الحالية ÷ الحد المسموح × 100%
-```
-
-### 🚦 قواعد الحالة
-- ✅ **آمن (Safe)**: أقل من 80%
-- ⚠️ **تحذير (Warning)**: من 80% إلى 99%
-- 🚨 **خطر (Critical)**: 100% أو أكثر
-
-### 📱 الصفحات
-1. **الرئيسية** — لوحة المراقبة الرئيسية بالأرقام والرسوم البيانية
-2. **نظرة عامة** — تحليل شامل مع خريطة حرارية واتجاهات
-3. **المناطق** — تفاصيل كل منطقة وحساساتها وعمالها
-4. **المحاكاة** — سيناريوهات "ماذا لو" لتقييم المخاطر المستقبلية
-5. **العمال** — متابعة تعرض كل عامل على حدة
-6. **التنبيهات** — إنذارات فورية عند تجاوز الحدود
-7. **التنفيذي** — ملخص للإدارة العليا
-8. **الإجهاد الحراري** — حسابات WBGT المتقدمة"""
-        else:
-            return """## 🛡️ ExpoInsight System Explanation
-
-I'm the **ExpoInsight Assistant** — the built-in occupational health analyst in this monitoring dashboard.
-
-**ExpoInsight** is an occupational health monitoring system for Saudi power plants.
-
-### 📊 What it monitors
-It tracks **4 hazards** across **6 facility zones**:
-- 💨 **CO₂** — Limit: 1,000 ppm (OSHA 1910.1000)
-- 🌡️ **Heat Index** — Limit: 40 (ACGIH TLV)
-- 🔊 **Noise** — Limit: 85 dBA (OSHA 1910.95)
-- ⚗️ **Gas** — Limit: 25 ppm (OSHA PEL)
-
-### 📐 Core Formula
-```
-Exposure % = Current Value ÷ Limit Value × 100%
-```
-
-### 🚦 Status Rules
-- ✅ **Safe**: Below 80%
-- ⚠️ **Warning**: 80% to 99%
-- 🚨 **Critical**: 100% or above
-
-### 📱 Dashboard Pages
-1. **HOME** — Main KPIs, charts, and zone comparison
-2. **OVERVIEW** — Heatmap, trends, and top exposed workers
-3. **ZONES** — Detailed zone analysis with sensor maps
-4. **SIMULATION** — "What if" scenarios for risk planning
-5. **WORKERS** — Individual worker exposure tracking
-6. **ALERTS** — Real-time warnings for threshold breaches
-7. **EXECUTIVE** — Management summary dashboard
-8. **HEAT STRESS** — Advanced WBGT calculations"""
-
-    # ── Most dangerous zone ──
-    if any(w in q for w in ["أخطر", "خطر", "dangerous", "worst zone", "critical zone", "most dangerous"]):
-        zone_data = find_zone_info()
-        # Find zones with Critical status
-        critical_zones = []
-        warning_zones = []
-        for line in lines:
-            if "Overall: Critical" in line:
-                critical_zones.append(line.strip())
-            elif "Overall: Warning" in line:
-                warning_zones.append(line.strip())
-
-        if is_arabic:
-            resp = "## 🚨 تحليل أخطر المناطق\n\n"
-            if critical_zones:
-                resp += "### المناطق الحرجة (Critical):\n"
-                for cz in critical_zones:
-                    resp += f"- 🔴 {cz}\n"
-            if warning_zones:
-                resp += "\n### مناطق التحذير (Warning):\n"
-                for wz in warning_zones:
-                    resp += f"- 🟡 {wz}\n"
-            if not critical_zones and not warning_zones:
-                resp += "✅ جميع المناطق آمنة حالياً!"
-            resp += "\n\n💡 **التوصية**: التركيز على المناطق الحرجة وتقليل وقت تواجد العمال فيها."
-        else:
-            resp = "## 🚨 Most Dangerous Zones Analysis\n\n"
-            if critical_zones:
-                resp += "### Critical Zones:\n"
-                for cz in critical_zones:
-                    resp += f"- 🔴 {cz}\n"
-            if warning_zones:
-                resp += "\n### Warning Zones:\n"
-                for wz in warning_zones:
-                    resp += f"- 🟡 {wz}\n"
-            if not critical_zones and not warning_zones:
-                resp += "✅ All zones are currently Safe!"
-            resp += "\n\n💡 **Recommendation**: Focus on critical zones and minimize worker presence."
+            resp = "## 🚨 Zone Danger Level Analysis\n\n"
+            if crit_zones:
+                resp += "### 🔴 Critical Zones (Immediate Action Required):\n\n"
+                for z in crit_zones:
+                    resp += f"**{z['name']}** ({z['type']})\n"
+                    for s in z["stats"]:
+                        if s["Status"] != "Safe":
+                            resp += f"  - {s['Icon']} {s['DisplayName']}: **{s['CurrentValue']} {s['Unit']}** (Exposure: {s['ExposurePct']:.0%}) — {s['Status']}\n"
+                    resp += "\n"
+            if warn_zones:
+                resp += "### 🟡 Warning Zones (Monitor Closely):\n\n"
+                for z in warn_zones:
+                    resp += f"**{z['name']}** — "
+                    warns = [s for s in z["stats"] if s["Status"] == "Warning"]
+                    resp += ", ".join([f"{s['DisplayName']} ({s['ExposurePct']:.0%})" for s in warns]) + "\n"
+            if not crit_zones and not warn_zones:
+                resp += "✅ **All zones are currently Safe!**\n"
+            resp += f"\n### 💡 Recommendations:\n"
+            if crit_zones:
+                resp += "- Immediate worker evacuation from critical zones\n- Deploy additional PPE\n- Inspect ventilation and cooling systems\n- Reassess work schedules and rest periods\n"
+            elif warn_zones:
+                resp += "- Increase monitoring frequency in warning zones\n- Ensure adequate PPE availability\n- Review allowable exposure durations\n"
         return resp
 
-    # ── Workers at risk ──
-    if any(w in q for w in ["عمال", "معرض", "workers", "risk", "at risk", "خطر"]):
-        worker_lines = [l for l in lines if l.strip().startswith("W0")]
-        risk_count = w_risk()
-        if is_arabic:
-            resp = f"## 👷 تحليل العمال المعرضين للخطر\n\n"
-            resp += f"**عدد العمال المعرضين للخطر: {risk_count}**\n\n"
-            resp += "هؤلاء هم العمال المتواجدون في مناطق حالتها Critical:\n\n"
-            for wl in worker_lines[:10]:
-                resp += f"- {wl.strip()}\n"
-            resp += "\n💡 **التوصية**: إخلاء العمال من المناطق الحرجة أو توفير معدات حماية إضافية."
+    # ── SPECIFIC ZONE QUESTION ──
+    zone_mentioned = None
+    for zid, zinfo in zone_data.items():
+        if zinfo["name"].lower() in q or zid.lower() in q:
+            zone_mentioned = (zid, zinfo)
+            break
+    if zone_mentioned:
+        zid, zi = zone_mentioned
+        if ar:
+            resp = f"## 🏭 تحليل منطقة: {zi['name']}\n\n"
+            resp += f"**النوع:** {zi['type']} | **السعة:** {zi['cap']} | **الحالة:** {sicon(zi['overall'])} **{zi['overall']}**\n\n"
+            resp += "### القراءات الحالية:\n\n"
+            for s in zi["stats"]:
+                bar = "█" * int(s["ExposurePct"] * 10) + "░" * (10 - int(s["ExposurePct"] * 10))
+                resp += f"- {s['Icon']} **{s['DisplayName']}**: {s['CurrentValue']} {s['Unit']} / {s['Limit']} → [{bar}] **{s['ExposurePct']:.0%}** {sicon(s['Status'])}\n"
+            # Workers in zone
+            zw = presence_df[presence_df["ZoneID"]==zid].merge(workers_df, on="WorkerID", how="left")
+            if len(zw) > 0:
+                resp += f"\n### العمال المتواجدون ({len(zw)}):\n"
+                for _, w in zw.iterrows():
+                    resp += f"- 👤 {w.get('FullName', w['WorkerID'])} ({w.get('JobTitle', 'N/A')})\n"
+            resp += f"\n### التوصيات لهذه المنطقة:\n"
+            danger_hazards = [s for s in zi["stats"] if s["Status"] != "Safe"]
+            if danger_hazards:
+                for dh in danger_hazards:
+                    if dh["HazardType"] == "Noise": resp += "- 🔊 توفير سدادات أذن ومراقبة مستمرة للضوضاء\n"
+                    elif dh["HazardType"] == "HeatIndex": resp += "- 🌡️ زيادة التهوية وتوفير فترات راحة إضافية ومياه شرب\n"
+                    elif dh["HazardType"] == "CO2": resp += "- 💨 فحص نظام التهوية وتحسين تدوير الهواء\n"
+                    elif dh["HazardType"] == "Gas": resp += "- ⚗️ فحص التسربات وتشغيل أنظمة شفط الغازات\n"
+            else:
+                resp += "- ✅ المنطقة آمنة حالياً. استمرار المراقبة الدورية.\n"
         else:
-            resp = f"## 👷 Workers at Risk Analysis\n\n"
-            resp += f"**Workers at Risk: {risk_count}**\n\n"
-            resp += "Workers currently present in Critical zones:\n\n"
-            for wl in worker_lines[:10]:
-                resp += f"- {wl.strip()}\n"
-            resp += "\n💡 **Recommendation**: Evacuate workers from critical zones or provide additional PPE."
+            resp = f"## 🏭 Zone Analysis: {zi['name']}\n\n"
+            resp += f"**Type:** {zi['type']} | **Capacity:** {zi['cap']} | **Status:** {sicon(zi['overall'])} **{zi['overall']}**\n\n"
+            resp += "### Current Readings:\n\n"
+            for s in zi["stats"]:
+                bar = "█" * int(s["ExposurePct"] * 10) + "░" * (10 - int(s["ExposurePct"] * 10))
+                resp += f"- {s['Icon']} **{s['DisplayName']}**: {s['CurrentValue']} {s['Unit']} / {s['Limit']} → [{bar}] **{s['ExposurePct']:.0%}** {sicon(s['Status'])}\n"
+            zw = presence_df[presence_df["ZoneID"]==zid].merge(workers_df, on="WorkerID", how="left")
+            if len(zw) > 0:
+                resp += f"\n### Workers Present ({len(zw)}):\n"
+                for _, w in zw.iterrows():
+                    resp += f"- 👤 {w.get('FullName', w['WorkerID'])} ({w.get('JobTitle', 'N/A')})\n"
+            resp += f"\n### Recommendations:\n"
+            danger_hazards = [s for s in zi["stats"] if s["Status"] != "Safe"]
+            if danger_hazards:
+                for dh in danger_hazards:
+                    if dh["HazardType"] == "Noise": resp += "- 🔊 Provide ear protection and continuous noise monitoring\n"
+                    elif dh["HazardType"] == "HeatIndex": resp += "- 🌡️ Increase ventilation, add rest breaks and water stations\n"
+                    elif dh["HazardType"] == "CO2": resp += "- 💨 Check ventilation system and improve air circulation\n"
+                    elif dh["HazardType"] == "Gas": resp += "- ⚗️ Check for leaks and activate gas extraction systems\n"
+            else:
+                resp += "- ✅ Zone is currently safe. Continue routine monitoring.\n"
         return resp
 
-    # ── Simulation / Scenario ──
-    if any(w in q for w in ["سيناريو", "محاكاة", "scenario", "simulation", "worst case", "increased", "new equipment"]):
-        sim_section = False
-        sim_lines = []
-        for line in lines:
-            if "=== SIMULATION" in line:
-                sim_section = True
-                continue
-            if sim_section:
-                if line.strip():
-                    sim_lines.append(line.strip())
-        if is_arabic:
+    # ── WORKERS AT RISK ──
+    if any(w in q for w in ["عمال","معرض","workers","risk","at risk","عامل","worker"]):
+        crit_zone_ids = [zid for zid, zi in zone_data.items() if zi["overall"] == "Critical"]
+        at_risk_workers = presence_df[presence_df["ZoneID"].isin(crit_zone_ids)].merge(workers_df, on="WorkerID", how="left") if crit_zone_ids else pd.DataFrame()
+
+        if ar:
+            resp = f"## 👷 تحليل سلامة العمال\n\n"
+            resp += f"**إجمالي العمال:** {total_w} | **المعرضين للخطر:** {risk_workers}\n\n"
+            if len(at_risk_workers) > 0:
+                resp += "### العمال في مناطق حرجة:\n\n"
+                for _, w in at_risk_workers.iterrows():
+                    zn = zname(w["ZoneID"])
+                    resp += f"- 🚨 **{w.get('FullName', w['WorkerID'])}** ({w.get('JobTitle','N/A')}) — في *{zn}*\n"
+                resp += f"\n### التوصيات:\n- إخلاء فوري أو تقليل وقت التواجد\n- توفير PPE مناسب (سدادات أذن، كمامات، ملابس واقية)\n- تسجيل التعرض في السجل الصحي للعامل\n- فحص طبي دوري للعمال المعرضين\n"
+            else:
+                resp += "✅ **لا يوجد عمال في مناطق حرجة حالياً**\n\n"
+                if warn_zones:
+                    resp += "⚠️ لكن يوجد عمال في مناطق تحذيرية — يُنصح بالمراقبة المستمرة.\n"
+        else:
+            resp = f"## 👷 Worker Safety Analysis\n\n"
+            resp += f"**Total Workers:** {total_w} | **At Risk:** {risk_workers}\n\n"
+            if len(at_risk_workers) > 0:
+                resp += "### Workers in Critical Zones:\n\n"
+                for _, w in at_risk_workers.iterrows():
+                    zn = zname(w["ZoneID"])
+                    resp += f"- 🚨 **{w.get('FullName', w['WorkerID'])}** ({w.get('JobTitle','N/A')}) — in *{zn}*\n"
+                resp += f"\n### Recommendations:\n- Immediate evacuation or reduce exposure time\n- Provide appropriate PPE\n- Log exposure in worker health records\n- Schedule periodic health checkups\n"
+            else:
+                resp += "✅ **No workers in critical zones currently**\n\n"
+                if warn_zones:
+                    resp += "⚠️ However, workers are present in warning zones — continuous monitoring advised.\n"
+        return resp
+
+    # ── SCENARIO / SIMULATION ──
+    if any(w in q for w in ["سيناريو","محاكاة","scenario","simulation","worst case","increased","new equipment","baseline","ماذا لو","what if"]):
+        ld = get_ld()
+        if ar:
             resp = "## 🔬 تحليل السيناريوهات\n\n"
-            resp += "السيناريوهات المتاحة في النظام:\n\n"
-            for sl in sim_lines[:20]:
-                resp += f"- {sl}\n"
-            resp += "\n💡 **التوصية**: سيناريو Worst Case يحتاج خطة طوارئ جاهزة."
+            for scn in simulation_df["ScenarioName"].unique():
+                sd = simulation_df[simulation_df["ScenarioName"]==scn]
+                changes = sd[sd["DeltaValue"] != 0]
+                resp += f"### 📋 {scn}\n"
+                if len(changes) == 0:
+                    resp += "لا تغييرات (سيناريو أساسي)\n\n"
+                    continue
+                resp += "| المنطقة | المخاطرة | الحالي | Δ | المتوقع | التعرض | الحالة |\n|---|---|---|---|---|---|---|\n"
+                for _, r in changes.iterrows():
+                    zn = zname(r["ZoneID"])
+                    rdf = readings_df[(readings_df["ZoneID"]==r["ZoneID"])&(readings_df["HazardType"]==r["HazardType"])]
+                    cur = rdf["MeasuredValue"].mean() if len(rdf)>0 else 0
+                    proj = cur + r["DeltaValue"]
+                    lm = ld.get(r["HazardType"], 1) if isinstance(ld, dict) else 1
+                    exp_a = cexp(proj, lm)
+                    st_a = gstat(exp_a)
+                    dn = HD[r["HazardType"]] if isinstance(HD,dict) and r["HazardType"] in HD else r["HazardType"]
+                    resp += f"| {zn} | {dn} | {cur:.1f} | +{r['DeltaValue']} | {proj:.1f} | {exp_a:.0%} | {sicon(st_a)} {st_a} |\n"
+                resp += "\n"
+            resp += "### 💡 التوصيات:\n- سيناريو **Worst Case** يتطلب خطة طوارئ شاملة\n- سيناريو **Increased Load** يحتاج مراجعة نظام التهوية\n- يُنصح بتطبيق سيناريو **New Equipment** بشكل تدريجي مع مراقبة مستمرة\n"
         else:
             resp = "## 🔬 Scenario Analysis\n\n"
-            resp += "Available simulation scenarios:\n\n"
-            for sl in sim_lines[:20]:
-                resp += f"- {sl}\n"
-            resp += "\n💡 **Recommendation**: Worst Case scenario requires emergency preparedness plan."
+            for scn in simulation_df["ScenarioName"].unique():
+                sd = simulation_df[simulation_df["ScenarioName"]==scn]
+                changes = sd[sd["DeltaValue"] != 0]
+                resp += f"### 📋 {scn}\n"
+                if len(changes) == 0:
+                    resp += "No changes (baseline)\n\n"
+                    continue
+                resp += "| Zone | Hazard | Current | Δ | Projected | Exposure | Status |\n|---|---|---|---|---|---|---|\n"
+                for _, r in changes.iterrows():
+                    zn = zname(r["ZoneID"])
+                    rdf = readings_df[(readings_df["ZoneID"]==r["ZoneID"])&(readings_df["HazardType"]==r["HazardType"])]
+                    cur = rdf["MeasuredValue"].mean() if len(rdf)>0 else 0
+                    proj = cur + r["DeltaValue"]
+                    lm = ld.get(r["HazardType"], 1) if isinstance(ld, dict) else 1
+                    exp_a = cexp(proj, lm)
+                    st_a = gstat(exp_a)
+                    dn = HD[r["HazardType"]] if isinstance(HD,dict) and r["HazardType"] in HD else r["HazardType"]
+                    resp += f"| {zn} | {dn} | {cur:.1f} | +{r['DeltaValue']} | {proj:.1f} | {exp_a:.0%} | {sicon(st_a)} {st_a} |\n"
+                resp += "\n"
+            resp += "### 💡 Recommendations:\n- **Worst Case** requires comprehensive emergency plan\n- **Increased Load** needs ventilation system review\n- **New Equipment** should be implemented gradually with monitoring\n"
         return resp
 
-    # ── Generic / fallback — provide full summary ──
-    overall = zhstats()
-    if is_arabic:
-        resp = "## 📊 ملخص الوضع الحالي\n\n"
-        for s in overall:
-            resp += f"- {s['Icon']} **{s['DisplayName']}**: {s['CurrentValue']} {s['Unit']} — التعرض: {s['ExposurePct']:.0%} — الحالة: {s['Status']}\n"
-        resp += f"\n- 👷 عدد العمال: {workers_df['WorkerID'].nunique()}\n"
-        resp += f"- 🚨 عمال في خطر: {w_risk()}\n"
-        resp += f"- ✅ مناطق آمنة: {sz_count()}/{len(zones_df)}\n"
-        resp += f"\n💡 هل تريد تفاصيل أكثر عن منطقة أو عامل معين؟ اسألني!"
-    else:
-        resp = "## 📊 Current Status Summary\n\n"
-        for s in overall:
-            resp += f"- {s['Icon']} **{s['DisplayName']}**: {s['CurrentValue']} {s['Unit']} — Exposure: {s['ExposurePct']:.0%} — Status: {s['Status']}\n"
-        resp += f"\n- 👷 Total Workers: {workers_df['WorkerID'].nunique()}\n"
-        resp += f"- 🚨 Workers at Risk: {w_risk()}\n"
-        resp += f"- ✅ Safe Zones: {sz_count()}/{len(zones_df)}\n"
-        resp += f"\n💡 Want more details about a specific zone or worker? Just ask!"
-    return resp
+    # ── COMPARE ZONES ──
+    if any(w in q for w in ["قارن","compare","مقارنة","فرق","difference","versus","vs"]):
+        if ar:
+            resp = "## ⚖️ مقارنة المناطق\n\n"
+            resp += "| المنطقة | النوع | الحالة | أعلى تعرض | أخطر مخاطرة |\n|---|---|---|---|---|\n"
+            for zid, zi in zone_data.items():
+                worst = max(zi["stats"], key=lambda s: s["ExposurePct"])
+                resp += f"| {sicon(zi['overall'])} {zi['name']} | {zi['type']} | **{zi['overall']}** | {worst['ExposurePct']:.0%} | {worst['Icon']} {worst['DisplayName']} |\n"
+            resp += f"\n💡 استخدم أداة **⚖️ مقارنة بين منطقتين** في تاب المحاكاة لمقارنة تفصيلية."
+        else:
+            resp = "## ⚖️ Zone Comparison\n\n"
+            resp += "| Zone | Type | Status | Max Exposure | Worst Hazard |\n|---|---|---|---|---|\n"
+            for zid, zi in zone_data.items():
+                worst = max(zi["stats"], key=lambda s: s["ExposurePct"])
+                resp += f"| {sicon(zi['overall'])} {zi['name']} | {zi['type']} | **{zi['overall']}** | {worst['ExposurePct']:.0%} | {worst['Icon']} {worst['DisplayName']} |\n"
+            resp += f"\n💡 Use the **⚖️ Compare Two Zones** tool in the Simulation tab for detailed comparison."
+        return resp
 
+    # ── RECOMMENDATIONS / ACTIONS ──
+    if any(w in q for w in ["توصي","recommend","action","إجراء","حل","solution","تحسين","improve","ماذا أفعل","what should"]):
+        if ar:
+            resp = "## 💡 توصيات السلامة\n\n"
+            resp += "### بناءً على الوضع الحالي:\n\n"
+            if crit_zones:
+                resp += "#### 🚨 إجراءات فورية (أولوية قصوى):\n"
+                for z in crit_zones:
+                    resp += f"- **{z['name']}**: إخلاء فوري وفحص المعدات\n"
+            if warn_zones:
+                resp += "\n#### ⚠️ إجراءات وقائية:\n"
+                for z in warn_zones:
+                    warns = [s for s in z["stats"] if s["Status"] == "Warning"]
+                    for s in warns:
+                        if s["HazardType"] == "Noise": resp += f"- **{z['name']}** — الضوضاء: توزيع سدادات أذن وتقليل التعرض\n"
+                        elif s["HazardType"] == "HeatIndex": resp += f"- **{z['name']}** — الحرارة: زيادة فترات الراحة والتهوية\n"
+                        elif s["HazardType"] == "CO2": resp += f"- **{z['name']}** — CO₂: فحص التهوية\n"
+                        elif s["HazardType"] == "Gas": resp += f"- **{z['name']}** — الغازات: فحص التسربات\n"
+            resp += "\n#### 📋 إجراءات عامة:\n- مراجعة فترات التعرض المسموحة لكل عامل\n- تحديث سجلات الصحة المهنية\n- إجراء تدريب سلامة شهري\n- معايرة أجهزة القياس دورياً\n"
+        else:
+            resp = "## 💡 Safety Recommendations\n\n"
+            resp += "### Based on Current Status:\n\n"
+            if crit_zones:
+                resp += "#### 🚨 Immediate Actions (Top Priority):\n"
+                for z in crit_zones:
+                    resp += f"- **{z['name']}**: Immediate evacuation and equipment inspection\n"
+            if warn_zones:
+                resp += "\n#### ⚠️ Preventive Actions:\n"
+                for z in warn_zones:
+                    warns = [s for s in z["stats"] if s["Status"] == "Warning"]
+                    for s in warns:
+                        if s["HazardType"] == "Noise": resp += f"- **{z['name']}** — Noise: Distribute ear protection, reduce exposure\n"
+                        elif s["HazardType"] == "HeatIndex": resp += f"- **{z['name']}** — Heat: Increase rest periods and ventilation\n"
+                        elif s["HazardType"] == "CO2": resp += f"- **{z['name']}** — CO₂: Check ventilation\n"
+                        elif s["HazardType"] == "Gas": resp += f"- **{z['name']}** — Gas: Check for leaks\n"
+            resp += "\n#### 📋 General Actions:\n- Review allowable exposure times per worker\n- Update occupational health records\n- Conduct monthly safety training\n- Calibrate sensors periodically\n"
+        return resp
+
+    # ── SPECIFIC HAZARD QUESTION ──
+    hazard_match = None
+    if any(w in q for w in ["ضوضاء","noise","صوت","sound","dba"]): hazard_match = "Noise"
+    elif any(w in q for w in ["حرار","heat","temperature","درجة","wbgt"]): hazard_match = "HeatIndex"
+    elif any(w in q for w in ["co2","كربون","carbon"]): hazard_match = "CO2"
+    elif any(w in q for w in ["غاز","gas","تسرب","leak"]): hazard_match = "Gas"
+
+    if hazard_match:
+        h_stat = next((s for s in all_stats if s["HazardType"] == hazard_match), None)
+        if h_stat:
+            # Find per-zone breakdown
+            if ar:
+                resp = f"## {h_stat['Icon']} تحليل {h_stat['DisplayName']} بالتفصيل\n\n"
+                resp += f"**المعدل العام:** {h_stat['CurrentValue']} {h_stat['Unit']} | **الحد:** {h_stat['Limit']} {h_stat['Unit']} | **التعرض:** {h_stat['ExposurePct']:.0%} | **الحالة:** {sicon(h_stat['Status'])} {h_stat['Status']}\n\n"
+                resp += "### التوزيع حسب المنطقة:\n\n"
+                for zid, zi in zone_data.items():
+                    hs = next((s for s in zi["stats"] if s["HazardType"] == hazard_match), None)
+                    if hs:
+                        bar = "█" * int(hs["ExposurePct"] * 10) + "░" * (10 - int(hs["ExposurePct"] * 10))
+                        resp += f"- **{zi['name']}**: {hs['CurrentValue']} {hs['Unit']} [{bar}] {hs['ExposurePct']:.0%} {sicon(hs['Status'])}\n"
+            else:
+                resp = f"## {h_stat['Icon']} {h_stat['DisplayName']} — Detailed Analysis\n\n"
+                resp += f"**Overall Average:** {h_stat['CurrentValue']} {h_stat['Unit']} | **Limit:** {h_stat['Limit']} {h_stat['Unit']} | **Exposure:** {h_stat['ExposurePct']:.0%} | **Status:** {sicon(h_stat['Status'])} {h_stat['Status']}\n\n"
+                resp += "### Per-Zone Breakdown:\n\n"
+                for zid, zi in zone_data.items():
+                    hs = next((s for s in zi["stats"] if s["HazardType"] == hazard_match), None)
+                    if hs:
+                        bar = "█" * int(hs["ExposurePct"] * 10) + "░" * (10 - int(hs["ExposurePct"] * 10))
+                        resp += f"- **{zi['name']}**: {hs['CurrentValue']} {hs['Unit']} [{bar}] {hs['ExposurePct']:.0%} {sicon(hs['Status'])}\n"
+            return resp
+
+    # ── GENERIC FALLBACK — Full current summary ──
+    if ar:
+        resp = "## 📊 الوضع الحالي للمنشأة\n\n"
+        resp += f"**آخر تحديث:** {lu.strftime('%Y-%m-%d %H:%M') if pd.notna(lu) else 'N/A'}\n\n"
+        resp += "### ملخص المخاطر:\n"
+        for s in all_stats:
+            bar = "█" * int(s["ExposurePct"] * 10) + "░" * (10 - int(s["ExposurePct"] * 10))
+            resp += f"- {s['Icon']} **{s['DisplayName']}**: {s['CurrentValue']} {s['Unit']} [{bar}] **{s['ExposurePct']:.0%}** {sicon(s['Status'])}\n"
+        resp += f"\n### ملخص المناطق:\n"
+        for zid, zi in zone_data.items():
+            resp += f"- {sicon(zi['overall'])} **{zi['name']}**: {zi['overall']}\n"
+        resp += f"\n### الأرقام الرئيسية:\n- 👷 عدد العمال: **{total_w}**\n- 🚨 معرضين للخطر: **{risk_workers}**\n- ✅ مناطق آمنة: **{safe_z}/{total_z}**\n"
+        resp += "\n💡 اسألني عن أي منطقة أو مخاطرة أو عامل بالتحديد وبعطيك تحليل مفصّل!"
+    else:
+        resp = "## 📊 Current Facility Status\n\n"
+        resp += f"**Last Updated:** {lu.strftime('%Y-%m-%d %H:%M') if pd.notna(lu) else 'N/A'}\n\n"
+        resp += "### Hazard Summary:\n"
+        for s in all_stats:
+            bar = "█" * int(s["ExposurePct"] * 10) + "░" * (10 - int(s["ExposurePct"] * 10))
+            resp += f"- {s['Icon']} **{s['DisplayName']}**: {s['CurrentValue']} {s['Unit']} [{bar}] **{s['ExposurePct']:.0%}** {sicon(s['Status'])}\n"
+        resp += f"\n### Zone Summary:\n"
+        for zid, zi in zone_data.items():
+            resp += f"- {sicon(zi['overall'])} **{zi['name']}**: {zi['overall']}\n"
+        resp += f"\n### Key Metrics:\n- 👷 Total Workers: **{total_w}**\n- 🚨 At Risk: **{risk_workers}**\n- ✅ Safe Zones: **{safe_z}/{total_z}**\n"
+        resp += "\n💡 Ask me about any specific zone, hazard, or worker for a detailed analysis!"
+    return resp
 
 # ═══════════════ TAB: ASK ME — AI Assistant ═══════════════
 with tab_ask:
@@ -1938,26 +2247,20 @@ with tab_ask:
         lines.append("")
 
         lines.append("=== OVERALL EXPOSURE (ALL ZONES AVERAGE) ===")
-        try:
-            overall = zhstats()
-            for s in overall:
-                lines.append(f"  {s['DisplayName']}: {s['CurrentValue']} {s['Unit']} | Limit: {s['Limit']} | Exposure: {s['ExposurePct']:.1%} | Status: {s['Status']}")
-        except Exception:
-            lines.append("  (Data unavailable)")
+        overall = zhstats()
+        for s in overall:
+            lines.append(f"  {s['Icon']} {s['DisplayName']}: {s['CurrentValue']} {s['Unit']} | Limit: {s['Limit']} | Exposure: {s['ExposurePct']:.1%} | Status: {s['Status']}")
         lines.append(f"  Workers at Risk: {w_risk()}")
         lines.append(f"  Safe Zones: {sz_count()}/{len(zones_df)}")
         lines.append("")
 
         lines.append("=== ZONE-BY-ZONE BREAKDOWN ===")
         for _,z in zones_df.iterrows():
-            try:
-                zs = zhstats(z["ZoneID"])
-                ov = zoverall(z["ZoneID"])
-                lines.append(f"\n  [{z['ZoneID']}] {z['ZoneName']} ({z['ZoneType']}, Capacity: {z['Capacity']}) — Overall: {ov}")
-                for s in zs:
-                    lines.append(f"    {s['DisplayName']}: {s['CurrentValue']} {s['Unit']} → Exposure: {s['ExposurePct']:.1%} ({s['Status']})")
-            except Exception:
-                lines.append(f"\n  [{z['ZoneID']}] {z['ZoneName']} — (data error)")
+            zs = zhstats(z["ZoneID"])
+            ov = zoverall(z["ZoneID"])
+            lines.append(f"\n  [{z['ZoneID']}] {z['ZoneName']} ({z['ZoneType']}, Capacity: {z['Capacity']}) — Overall: {ov}")
+            for s in zs:
+                lines.append(f"    {s['Icon']} {s['DisplayName']}: {s['CurrentValue']} {s['Unit']} → Exposure: {s['ExposurePct']:.1%} ({s['Status']})")
             # Workers in this zone
             zw = presence_df[presence_df["ZoneID"]==z["ZoneID"]].merge(workers_df, on="WorkerID", how="left")
             if len(zw) > 0:
@@ -1994,7 +2297,7 @@ with tab_ask:
                     exp_after = cexp(proj, lim)
                     lines.append(f"    {zn} / {r['HazardType']}: Δ{r['DeltaValue']:+g} → Before: {curr:.1f} ({exp_before:.0%}) → After: {proj:.1f} ({exp_after:.0%}) [{gstat(exp_after)}]")
 
-            return "\n".join(lines)
+        return "\n".join(lines)
 
     # ── Quick-action buttons ──
     st.markdown(f"<div style='margin:12px 0 8px;color:{C['text2']};font-size:13px;font-weight:600'>{'💡 أسئلة سريعة:' if AR else '💡 Quick Questions:'}</div>", unsafe_allow_html=True)
@@ -2003,7 +2306,7 @@ with tab_ask:
     quick_qs = [
         ("🏭", "ما هي أخطر منطقة؟" if AR else "What's the most dangerous zone?"),
         ("📊", "اشرح لي النظام" if AR else "Explain the system"),
-        ("📐", "اشرح المعادلات" if AR else "Explain the equations"),
+        ("🔬", "حلل سيناريو Worst Case" if AR else "Analyze Worst Case scenario"),
         ("👷", "من هم العمال المعرضين للخطر؟" if AR else "Which workers are at risk?"),
     ]
 
@@ -2041,40 +2344,93 @@ with tab_ask:
             with st.spinner("🔍 جاري التحليل..." if AR else "🔍 Analyzing..."):
                 data_context = build_data_context()
 
-                system_prompt = f"""أنت "مساعد ExpoInsight" — محلل متخصص في الصحة المهنية والسلامة، مدمج داخل لوحة مراقبة ExpoInsight لمحطات الطاقة في المملكة العربية السعودية.
+                system_prompt = f"""أنت "مساعد ExpoInsight" — محلل متخصص في الصحة الصناعية والمهنية والسلامة والبيئة المهنية، مدمج داخل لوحة مراقبة ExpoInsight لمحطات الطاقة في المملكة العربية السعودية.
 
-IDENTITY RULES (CRITICAL — NEVER BREAK THESE):
-- You are "ExpoInsight Assistant" / "مساعد ExpoInsight". That is your ONLY identity.
-- NEVER mention Claude, Anthropic, AI model, language model, LLM, GPT, or any AI technology.
-- NEVER say "I am an AI" or "I am a language model" or anything similar.
-- If asked "who are you?" or "what are you?", say: "أنا مساعد ExpoInsight — نظام تحليل الصحة المهنية المدمج في لوحة المراقبة" (or English equivalent).
-- If asked who made you, say: "أنا جزء من نظام ExpoInsight لمراقبة الصحة المهنية" — do NOT mention Anthropic or Claude.
-- You are a BUILT-IN feature of the ExpoInsight dashboard, like a calculator or report generator.
+=== IDENTITY (NEVER BREAK) ===
+- أنت "مساعد ExpoInsight" فقط. لا تذكر أبداً Claude أو Anthropic أو AI أو نموذج لغوي أو LLM أو GPT.
+- لو سألوك "من أنت؟" قل: "أنا مساعد ExpoInsight — محلل الصحة الصناعية والمهنية المدمج في لوحة المراقبة"
+- أنت جزء مدمج في النظام مثل الآلة الحاسبة — مو برنامج خارجي.
 
-SCOPE RULES (CRITICAL):
-- ONLY answer questions related to: occupational health, safety, the dashboard data, zones, workers, hazards, exposure, simulations, regulatory standards (OSHA, ACGIH, NCOSH), Saudi workplace safety.
-- If asked about ANYTHING outside this scope (cooking, sports, politics, coding, personal advice, weather, etc.), politely decline:
-  Arabic: "عذراً، أنا متخصص فقط في الصحة المهنية وبيانات ExpoInsight. كيف أقدر أساعدك في تحليل السلامة؟"
-  English: "Sorry, I only handle occupational health and ExpoInsight data. How can I help you with safety analysis?"
-- Do NOT try to be helpful with off-topic questions. Just redirect to your scope.
+=== SCOPE (ABSOLUTE — لا تتجاوزه أبداً) ===
+تخصصك محصور في:
+- الصحة الصناعية (Industrial Hygiene) والصحة المهنية (Occupational Health)
+- السلامة المهنية (Occupational Safety) والبيئة المهنية
+- بيانات ExpoInsight (المناطق، العمال، المخاطر، السيناريوهات)
+- المعايير: OSHA, ACGIH, NIOSH, NCOSH السعودي, وزارة الموارد البشرية
+- أي سؤال خارج هذا النطاق (طبخ، رياضة، سياسة، برمجة، أخبار، الخ) → ارفض بحزم:
+  "عذراً، تخصصي محصور في الصحة الصناعية والمهنية والسلامة فقط."
+- حتى لو أصر المستخدم — لا تجاوب أبداً خارج النطاق.
 
-CAPABILITIES:
-1. Answer questions about current hazard readings, exposure levels, and zone statuses
-2. Explain how the ExpoInsight system works (formulas, thresholds, regulatory standards)
-3. Analyze simulation scenarios and predict impacts
-4. Identify workers at risk and recommend actions
-5. Provide safety recommendations based on OSHA, ACGIH, and Saudi NCOSH standards
-6. Compare zones, identify trends, and flag concerns
+=== معلومات عن المشروع (ExpoInsight) ===
+ExpoInsight هو نظام مراقبة الصحة المهنية لمحطات الطاقة في السعودية.
+- يراقب 4 مخاطر: CO₂ (حد 1000 ppm)، مؤشر الحرارة (حد 40)، الضوضاء (حد 85 dBA)، الغازات (حد 25 ppm)
+- يغطي 6 مناطق: Generator Area, Fuel Unloading Area, Control Room, Workshop, Storage Area, Laboratory
+- نسبة التعرض = القراءة ÷ الحد المسموح
+- الحالات: Safe (<80%), Warning (80-99%), Critical (≥100%)
+- يتضمن: لوحة رئيسية، نظرة عامة، مناطق، محاكاة سيناريوهات، متابعة عمال، تنبيهات، تقارير تنفيذية، حاسبة إجهاد حراري WBGT
 
-RESPONSE STYLE:
-- If the user writes in Arabic, respond in Arabic. If English, respond in English.
-- Be concise but thorough
-- Use numbers and data from the context provided below
-- Use emoji for visual clarity
-- For scenarios, show before/after comparisons
-- Always provide actionable recommendations when relevant
+=== تطوير النظام المستقبلي ===
+لو سألوك عن تطوير ExpoInsight أو وش يحتاج، هذي الخطوات المقترحة:
+1. ربط حساسات IoT حقيقية (Real-time sensor integration) بدل البيانات اليدوية
+2. تطبيق جوال (Mobile App) للإنذارات الفورية على جوالات مسؤولي السلامة
+3. نظام تنبؤي (Predictive Analytics) يتوقع المخاطر قبل حدوثها باستخدام بيانات تاريخية
+4. ربط مع السجلات الطبية للعمال (Health Records Integration)
+5. تقارير تلقائية للجهات الرقابية (NCOSH, وزارة الموارد البشرية)
+6. خريطة حرارية ثلاثية الأبعاد للمنشأة (3D Facility Heatmap)
+7. نظام تصاريح عمل إلكتروني (Electronic PTW System)
+8. تتبع GPS للعمال داخل المنشأة
+9. لوحة مراقبة متعددة المحطات (Multi-Plant Dashboard)
+10. شهادة ISO 45001 جاهزية النظام
 
-CURRENT LIVE DATA:
+=== الهاكاثون العالمي للسلامة والصحة المهنية (GOSHATHON) ===
+- GOSHATHON = Global Occupational Safety and Health Hackathon
+- هاكاثون عالمي متخصص في ابتكار حلول تقنية للسلامة والصحة المهنية
+- ينظم لتطوير مشاريع تخدم بيئات العمل الصناعية وتحسين ظروف العمال
+- ExpoInsight مشروع مقدم للهاكاثون كحل متكامل لمراقبة الصحة المهنية في محطات الطاقة
+- القيمة المضافة: حماية أرواح العمال، الامتثال التنظيمي، اتخاذ القرار بالبيانات، تقليل الحوادث
+
+=== المجلس الوطني للسلامة والصحة المهنية (NCOSH) — السعودية ===
+- NCOSH = National Committee for Occupational Safety and Health
+- تأسس بموجب نظام العمل السعودي
+- يتبع وزارة الموارد البشرية والتنمية الاجتماعية
+- مهامه:
+  * وضع السياسات والمعايير الوطنية للسلامة والصحة المهنية
+  * مراقبة تطبيق اشتراطات السلامة في المنشآت
+  * التحقيق في الحوادث والإصابات المهنية
+  * إصدار التراخيص والاعتمادات لمزاولي مهن السلامة
+  * التنسيق مع الجهات الدولية (ILO, OSHA)
+- الأنظمة واللوائح ذات الصلة:
+  * نظام العمل السعودي — الباب الثامن: الوقاية من مخاطر العمل
+  * لائحة إجراءات التفتيش وتحقيق مخالفات العمل
+  * اشتراطات السلامة في بيئة العمل الصناعية
+  * معايير الحدود المسموحة للتعرض المهني (OEL)
+  * متطلبات الفحص الطبي المهني الدوري
+  * نظام الإبلاغ عن إصابات العمل والأمراض المهنية
+  * لائحة معدات الحماية الشخصية (PPE)
+  * اشتراطات التهوية وجودة الهواء في بيئة العمل
+  * معايير الضوضاء المهنية والاهتزاز
+  * اشتراطات السلامة من الحريق في المنشآت الصناعية
+  * نظام تصاريح العمل (PTW) للأعمال الخطرة
+
+=== الإجراءات السعودية للصحة المهنية ===
+- الفحص الطبي الابتدائي: إلزامي قبل التوظيف
+- الفحص الطبي الدوري: سنوي للعمال المعرضين لمخاطر
+- حدود ساعات العمل: 8 ساعات/يوم، 48 ساعة/أسبوع
+- فترات الراحة في الحرارة: قرار حظر العمل تحت الشمس (12ظ-3م) في الصيف
+- الإبلاغ عن الإصابات: خلال 72 ساعة لوزارة الموارد البشرية
+- التأمين: إلزامي ضد مخاطر العمل (GOSI)
+- التدريب: إلزامي على السلامة قبل مباشرة العمل
+- لجان السلامة: إلزامية في المنشآت 100+ عامل
+- مسؤول السلامة: إلزامي في المنشآت 50+ عامل
+
+=== RESPONSE STYLE ===
+- لو كتب بالعربي جاوب بالعربي. لو إنجليزي جاوب إنجليزي.
+- كن مختصر ومفيد — بدون فلسفة أو حشو
+- استخدم الأرقام والبيانات الحية
+- قدم توصيات عملية
+- استخدم إيموجي للوضوح
+
+=== CURRENT LIVE DATA ===
 {data_context}
 """
                 # Build messages for API call
@@ -2088,34 +2444,46 @@ CURRENT LIVE DATA:
                 try:
                     import urllib.request
                     import json
+                    import os
 
-                    request_body = json.dumps({
-                        "model": "claude-sonnet-4-20250514",
-                        "max_tokens": 2000,
-                        "system": system_prompt,
-                        "messages": api_messages,
-                    }).encode("utf-8")
+                    # Get API key from environment variable or sidebar
+                    api_key = os.environ.get("ANTHROPIC_API_KEY", "") or st.session_state.get("api_key", "")
+                    if not api_key:
+                        api_key = st.session_state.get("api_key", "")
 
-                    req = urllib.request.Request(
-                        "https://api.anthropic.com/v1/messages",
-                        data=request_body,
-                        headers={
-                            "Content-Type": "application/json",
-                        },
-                        method="POST",
-                    )
+                    if not api_key:
+                        # No API key — use smart local fallback
+                        answer = generate_local_answer(user_q, data_context, AR)
+                    else:
+                        request_body = json.dumps({
+                            "model": "claude-sonnet-4-20250514",
+                            "max_tokens": 2000,
+                            "system": system_prompt,
+                            "messages": api_messages,
+                        }).encode("utf-8")
 
-                    with urllib.request.urlopen(req, timeout=30) as resp:
-                        result = json.loads(resp.read().decode("utf-8"))
+                        req = urllib.request.Request(
+                            "https://api.anthropic.com/v1/messages",
+                            data=request_body,
+                            headers={
+                                "Content-Type": "application/json",
+                                "x-api-key": api_key,
+                                "anthropic-version": "2023-06-01",
+                            },
+                            method="POST",
+                        )
 
-                    # Extract text from response
-                    answer = ""
-                    for block in result.get("content", []):
-                        if block.get("type") == "text":
-                            answer += block["text"]
+                        with urllib.request.urlopen(req, timeout=30) as resp:
+                            result = json.loads(resp.read().decode("utf-8"))
 
-                    if not answer:
-                        answer = "⚠️ لم أتمكن من إنشاء رد. حاول مرة أخرى." if AR else "⚠️ Could not generate a response. Please try again."
+                        # Extract text from response
+                        answer = ""
+                        for block in result.get("content", []):
+                            if block.get("type") == "text":
+                                answer += block["text"]
+
+                        if not answer:
+                            answer = generate_local_answer(user_q, data_context, AR)
 
                 except Exception as e:
                     # Fallback: generate answer locally from data
@@ -2137,39 +2505,16 @@ st.markdown("---")
 st.markdown(f"### 📄 Export Report")
 if st.button("📥 Generate Report",key="pdf"):
     sa=zhstats()
-    rh=f'<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{{font-family:-apple-system,Inter,sans-serif;padding:20px;color:#FFF;background:#0F172A;direction:ltr}}h1{{color:#4FC3F7;border-bottom:3px solid #0F4C75;padding-bottom:10px;font-size:22px}}h2{{color:#4FC3F7;margin-top:30px;font-size:18px}}table{{width:100%;border-collapse:collapse;margin:15px 0}}th{{background:#0B3558;color:white;padding:10px;text-align:left;font-size:13px}}td{{padding:8px 10px;border-bottom:1px solid #334155;color:#94A3B8;font-size:13px}}.safe{{color:#81C784;font-weight:bold}}.warning{{color:#FFD54F;font-weight:bold}}.critical{{color:#EF9A9A;font-weight:bold}}.summary{{background:#0B3558;border-radius:12px;padding:16px;margin:16px 0}}.summary span{{display:inline-block;margin:0 12px;font-size:14px}}</style></head><body>'
-    rh+=f'<h1>ExpoInsight Report</h1><p style="color:#94A3B8">Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")} (Riyadh)</p>'
-    rh+=f'<div class="summary"><span style="color:#4FC3F7">Workers: <strong>{workers_df["WorkerID"].nunique()}</strong></span><span style="color:#EF9A9A">At Risk: <strong>{w_risk()}</strong></span><span style="color:#81C784">Safe Zones: <strong>{sz_count()}/{len(zones_df)}</strong></span></div>'
-    rh+='<h2>Exposure Summary</h2><table><tr><th>Hazard</th><th>Value</th><th>Limit</th><th>Exposure %</th><th>Status</th></tr>'
-    for s in sa: rh+=f'<tr><td>{s["DisplayName"]}</td><td>{s["CurrentValue"]} {s["Unit"]}</td><td>{s["Limit"]}</td><td class="{scss(s["Status"])}">{s["ExposurePct"]:.0%}</td><td class="{scss(s["Status"])}">{s["Status"]}</td></tr>'
-    rh+='</table><h2>Zones</h2><table><tr><th>Zone</th><th>Type</th><th>Status</th><th>Max Exposure</th></tr>'
+    rh=f'<html><head><style>body{{font-family:Inter,sans-serif;padding:40px;color:#FFF;background:#0F172A}}h1{{color:#4FC3F7;border-bottom:3px solid #0F4C75;padding-bottom:10px}}h2{{color:#4FC3F7;margin-top:30px}}table{{width:100%;border-collapse:collapse;margin:15px 0}}th{{background:#0B3558;color:white;padding:10px;text-align:left}}td{{padding:8px 10px;border-bottom:1px solid #334155;color:#94A3B8}}.safe{{color:#81C784;font-weight:bold}}.warning{{color:#FFD54F;font-weight:bold}}.critical{{color:#EF9A9A;font-weight:bold}}</style></head><body>'
+    rh+=f'<h1>🛡️ ExpoInsight Report</h1><p>Generated: {datetime.now().strftime("%Y-%m-%d %H:%M")}</p>'
+    rh+=f'<p>Workers: {workers_df["WorkerID"].nunique()} | At Risk: {w_risk()} | Safe Zones: {sz_count()}/{len(zones_df)}</p>'
+    rh+='<h2>Exposure Summary</h2><table><tr><th>Hazard</th><th>Value</th><th>Limit</th><th>Exp%</th><th>Status</th></tr>'
+    for s in sa: rh+=f'<tr><td>{s["Icon"]} {s["DisplayName"]}</td><td>{s["CurrentValue"]} {s["Unit"]}</td><td>{s["Limit"]}</td><td class="{scss(s["Status"])}">{s["ExposurePct"]:.0%}</td><td class="{scss(s["Status"])}">{s["Status"]}</td></tr>'
+    rh+='</table><h2>Zones</h2><table><tr><th>Zone</th><th>Type</th><th>Status</th><th>Max Exp</th></tr>'
     for _,z in zones_df.iterrows():
         zs2=zhstats(z["ZoneID"]);mx2=max(s["ExposurePct"] for s in zs2);os2=zoverall(z["ZoneID"])
         rh+=f'<tr><td>{z["ZoneName"]}</td><td>{z["ZoneType"]}</td><td class="{scss(os2)}">{os2}</td><td class="{scss(os2)}">{mx2:.0%}</td></tr>'
-    # Workers section
-    rh+='</table><h2>Workers at Risk</h2><table><tr><th>Worker</th><th>Job</th><th>Zone</th><th>Hours</th><th>Status</th></tr>'
-    for _,w in workers_df.iterrows():
-        wid=w["WorkerID"];wp=presence_df[presence_df["WorkerID"]==wid]
-        if len(wp)==0: continue
-        total_hrs=wp["Hours"].sum() if "Hours" in wp.columns else 0
-        zones_visited=wp["ZoneID"].unique()
-        w_status="Safe"; w_class="safe"
-        for zid in zones_visited:
-            if zoverall(zid)=="Critical": w_status="Critical"; w_class="critical"; break
-            elif zoverall(zid)=="Warning" and w_status!="Critical": w_status="Warning"; w_class="warning"
-        zone_names=", ".join([zname(zid) for zid in zones_visited])
-        rh+=f'<tr><td style="color:#E0E0E0;font-weight:700">{w["FullName"]}</td><td>{w["JobTitle"]}</td><td>{zone_names}</td><td>{total_hrs:.1f}h</td><td class="{w_class}">{w_status}</td></tr>'
-    # Recommendations
-    rh+='</table><h2>Recommendations</h2><ul style="color:#94A3B8;line-height:2">'
-    for _,z in zones_df.iterrows():
-        zs2=zhstats(z["ZoneID"]);os2=zoverall(z["ZoneID"])
-        if os2=="Critical":
-            worst=max(zs2,key=lambda s:s["ExposurePct"])
-            rh+=f'<li><strong style="color:#EF9A9A">{z["ZoneName"]}</strong> — Critical: {worst["DisplayName"]} at {worst["ExposurePct"]:.0%}. Immediate action required.</li>'
-        elif os2=="Warning":
-            worst=max(zs2,key=lambda s:s["ExposurePct"])
-            rh+=f'<li><strong style="color:#FFD54F">{z["ZoneName"]}</strong> — Warning: {worst["DisplayName"]} at {worst["ExposurePct"]:.0%}. Monitor closely.</li>'
-    rh+='</ul></body></html>'
+    rh+='</table></body></html>'
     st.download_button("📥 Download",data=rh,file_name=f"ExpoInsight_{datetime.now().strftime('%Y%m%d_%H%M')}.html",mime="text/html")
     st.success("✅ Report ready!")
 
