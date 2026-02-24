@@ -228,12 +228,16 @@ def zhstats(zone_id=None):
     res=[]
     for h in HO:
         hdf=df[df["HazardType"]==h]
-        c=float(hdf["MeasuredValue"].mean()) if len(hdf)>0 else 0.0
+        try: c=float(hdf["MeasuredValue"].mean()) if len(hdf)>0 else 0.0
+        except: c=0.0
         if pd.isna(c): c=0.0
-        l=float(ld.get(h,1)) if isinstance(ld,dict) else 1.0
+        try: l=float(ld.get(h,1)) if isinstance(ld,dict) else 1.0
+        except: l=1.0
         u=str(ud.get(h,"")) if isinstance(ud,dict) else ""
-        e=cexp(c,l)
-        res.append({"HazardType":h,"DisplayName":HD.get(h,h),"Icon":HI.get(h,""),"CurrentValue":round(c,1),"Limit":l,"Unit":u,"ExposurePct":e,"Status":gstat(e)})
+        e=float(c/l) if l>0 else 0.0
+        cv=round(float(c),1)
+        st_val=gstat(e)
+        res.append({"HazardType":h,"DisplayName":HD.get(h,h),"Icon":HI.get(h,""),"CurrentValue":cv,"Limit":l,"Unit":u,"ExposurePct":e,"Status":st_val})
     return res
 def get_sparkline(zone_id,hazard,n=8):
     df=readings_df[readings_df["HazardType"]==hazard]
