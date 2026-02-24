@@ -1680,6 +1680,218 @@ with tab9:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
+
+def generate_local_answer(question, data_context, is_arabic=False):
+    """Fallback: generate an intelligent answer locally by parsing the data context.
+    Acts as ExpoInsight's built-in assistant — never mentions AI/Claude/Anthropic.
+    Only answers occupational health & ExpoInsight-related questions."""
+    q = question.lower()
+    lines = data_context.split("\n")
+
+    # ── SCOPE GUARD: reject off-topic questions ──
+    safety_keywords = ["خطر","منطقة","عامل","تعرض","حرار","ضوضاء","غاز","co2","zone","worker","hazard",
+                       "exposure","noise","heat","gas","safe","critical","warning","سيناريو","scenario",
+                       "simulation","محاكاة","اشرح","explain","نظام","system","expoinsight","حد","limit",
+                       "osha","ncosh","acgih","سلام","safety","صحة","health","sensor","حساس","تنبيه","alert",
+                       "risk","خطر","مراقب","monitor","dashboard","لوحة","report","تقرير","wbgt","حراري",
+                       "thermal","ملخص","summary","status","حالة","reading","قراء","calibrat","معاير"]
+    is_on_topic = any(kw in q for kw in safety_keywords)
+
+    if not is_on_topic:
+        if is_arabic:
+            return "عذراً، أنا متخصص فقط في الصحة المهنية وبيانات ExpoInsight. 🛡️\n\nيمكنني مساعدتك في:\n- تحليل مستويات التعرض والمخاطر\n- شرح النظام ومعادلاته\n- تحليل السيناريوهات\n- معلومات عن العمال والمناطق\n\nكيف أقدر أساعدك في تحليل السلامة؟"
+        else:
+            return "Sorry, I specialize only in occupational health and ExpoInsight data. 🛡️\n\nI can help you with:\n- Analyzing exposure levels and hazards\n- Explaining the system and its formulas\n- Scenario analysis\n- Worker and zone information\n\nHow can I help you with safety analysis?"
+
+    # Helper to find zone stats
+    def find_zone_info():
+        zone_data = {}
+        current_zone = None
+        for line in lines:
+            if line.strip().startswith("[Z0"):
+                parts = line.strip()
+                zid = parts[1:5]
+                current_zone = zid
+                zone_data[zid] = {"line": parts, "hazards": []}
+            elif current_zone and ("Exposure:" in line):
+                zone_data[current_zone]["hazards"].append(line.strip())
+        return zone_data
+
+    # ── System explanation ──
+    if any(w in q for w in ["اشرح", "explain", "شرح", "كيف يعمل", "how does", "what is expoinsight", "ما هو", "من أنت", "who are you", "what are you", "وش أنت"]):
+        if is_arabic:
+            return """## 🛡️ شرح نظام ExpoInsight
+
+أنا **مساعد ExpoInsight** — محلل الصحة المهنية المدمج في لوحة المراقبة.
+
+**ExpoInsight** هو نظام مراقبة الصحة المهنية لمحطات الطاقة في المملكة العربية السعودية.
+
+### 📊 ماذا يراقب؟
+يتابع **4 مخاطر رئيسية** في **6 مناطق** بالمحطة:
+- 💨 **ثاني أكسيد الكربون (CO₂)** — الحد: 1,000 ppm (معيار OSHA)
+- 🌡️ **مؤشر الحرارة (Heat Index)** — الحد: 40 درجة (معيار ACGIH)
+- 🔊 **الضوضاء (Noise)** — الحد: 85 ديسيبل (معيار OSHA)
+- ⚗️ **الغازات السامة (Gas)** — الحد: 25 ppm (معيار OSHA PEL)
+
+### 📐 المعادلة الأساسية
+```
+نسبة التعرض = القراءة الحالية ÷ الحد المسموح × 100%
+```
+
+### 🚦 قواعد الحالة
+- ✅ **آمن (Safe)**: أقل من 80%
+- ⚠️ **تحذير (Warning)**: من 80% إلى 99%
+- 🚨 **خطر (Critical)**: 100% أو أكثر
+
+### 📱 الصفحات
+1. **الرئيسية** — لوحة المراقبة الرئيسية بالأرقام والرسوم البيانية
+2. **نظرة عامة** — تحليل شامل مع خريطة حرارية واتجاهات
+3. **المناطق** — تفاصيل كل منطقة وحساساتها وعمالها
+4. **المحاكاة** — سيناريوهات "ماذا لو" لتقييم المخاطر المستقبلية
+5. **العمال** — متابعة تعرض كل عامل على حدة
+6. **التنبيهات** — إنذارات فورية عند تجاوز الحدود
+7. **التنفيذي** — ملخص للإدارة العليا
+8. **الإجهاد الحراري** — حسابات WBGT المتقدمة"""
+        else:
+            return """## 🛡️ ExpoInsight System Explanation
+
+I'm the **ExpoInsight Assistant** — the built-in occupational health analyst in this monitoring dashboard.
+
+**ExpoInsight** is an occupational health monitoring system for Saudi power plants.
+
+### 📊 What it monitors
+It tracks **4 hazards** across **6 facility zones**:
+- 💨 **CO₂** — Limit: 1,000 ppm (OSHA 1910.1000)
+- 🌡️ **Heat Index** — Limit: 40 (ACGIH TLV)
+- 🔊 **Noise** — Limit: 85 dBA (OSHA 1910.95)
+- ⚗️ **Gas** — Limit: 25 ppm (OSHA PEL)
+
+### 📐 Core Formula
+```
+Exposure % = Current Value ÷ Limit Value × 100%
+```
+
+### 🚦 Status Rules
+- ✅ **Safe**: Below 80%
+- ⚠️ **Warning**: 80% to 99%
+- 🚨 **Critical**: 100% or above
+
+### 📱 Dashboard Pages
+1. **HOME** — Main KPIs, charts, and zone comparison
+2. **OVERVIEW** — Heatmap, trends, and top exposed workers
+3. **ZONES** — Detailed zone analysis with sensor maps
+4. **SIMULATION** — "What if" scenarios for risk planning
+5. **WORKERS** — Individual worker exposure tracking
+6. **ALERTS** — Real-time warnings for threshold breaches
+7. **EXECUTIVE** — Management summary dashboard
+8. **HEAT STRESS** — Advanced WBGT calculations"""
+
+    # ── Most dangerous zone ──
+    if any(w in q for w in ["أخطر", "خطر", "dangerous", "worst zone", "critical zone", "most dangerous"]):
+        zone_data = find_zone_info()
+        # Find zones with Critical status
+        critical_zones = []
+        warning_zones = []
+        for line in lines:
+            if "Overall: Critical" in line:
+                critical_zones.append(line.strip())
+            elif "Overall: Warning" in line:
+                warning_zones.append(line.strip())
+
+        if is_arabic:
+            resp = "## 🚨 تحليل أخطر المناطق\n\n"
+            if critical_zones:
+                resp += "### المناطق الحرجة (Critical):\n"
+                for cz in critical_zones:
+                    resp += f"- 🔴 {cz}\n"
+            if warning_zones:
+                resp += "\n### مناطق التحذير (Warning):\n"
+                for wz in warning_zones:
+                    resp += f"- 🟡 {wz}\n"
+            if not critical_zones and not warning_zones:
+                resp += "✅ جميع المناطق آمنة حالياً!"
+            resp += "\n\n💡 **التوصية**: التركيز على المناطق الحرجة وتقليل وقت تواجد العمال فيها."
+        else:
+            resp = "## 🚨 Most Dangerous Zones Analysis\n\n"
+            if critical_zones:
+                resp += "### Critical Zones:\n"
+                for cz in critical_zones:
+                    resp += f"- 🔴 {cz}\n"
+            if warning_zones:
+                resp += "\n### Warning Zones:\n"
+                for wz in warning_zones:
+                    resp += f"- 🟡 {wz}\n"
+            if not critical_zones and not warning_zones:
+                resp += "✅ All zones are currently Safe!"
+            resp += "\n\n💡 **Recommendation**: Focus on critical zones and minimize worker presence."
+        return resp
+
+    # ── Workers at risk ──
+    if any(w in q for w in ["عمال", "معرض", "workers", "risk", "at risk", "خطر"]):
+        worker_lines = [l for l in lines if l.strip().startswith("W0")]
+        risk_count = w_risk()
+        if is_arabic:
+            resp = f"## 👷 تحليل العمال المعرضين للخطر\n\n"
+            resp += f"**عدد العمال المعرضين للخطر: {risk_count}**\n\n"
+            resp += "هؤلاء هم العمال المتواجدون في مناطق حالتها Critical:\n\n"
+            for wl in worker_lines[:10]:
+                resp += f"- {wl.strip()}\n"
+            resp += "\n💡 **التوصية**: إخلاء العمال من المناطق الحرجة أو توفير معدات حماية إضافية."
+        else:
+            resp = f"## 👷 Workers at Risk Analysis\n\n"
+            resp += f"**Workers at Risk: {risk_count}**\n\n"
+            resp += "Workers currently present in Critical zones:\n\n"
+            for wl in worker_lines[:10]:
+                resp += f"- {wl.strip()}\n"
+            resp += "\n💡 **Recommendation**: Evacuate workers from critical zones or provide additional PPE."
+        return resp
+
+    # ── Simulation / Scenario ──
+    if any(w in q for w in ["سيناريو", "محاكاة", "scenario", "simulation", "worst case", "increased", "new equipment"]):
+        sim_section = False
+        sim_lines = []
+        for line in lines:
+            if "=== SIMULATION" in line:
+                sim_section = True
+                continue
+            if sim_section:
+                if line.strip():
+                    sim_lines.append(line.strip())
+        if is_arabic:
+            resp = "## 🔬 تحليل السيناريوهات\n\n"
+            resp += "السيناريوهات المتاحة في النظام:\n\n"
+            for sl in sim_lines[:20]:
+                resp += f"- {sl}\n"
+            resp += "\n💡 **التوصية**: سيناريو Worst Case يحتاج خطة طوارئ جاهزة."
+        else:
+            resp = "## 🔬 Scenario Analysis\n\n"
+            resp += "Available simulation scenarios:\n\n"
+            for sl in sim_lines[:20]:
+                resp += f"- {sl}\n"
+            resp += "\n💡 **Recommendation**: Worst Case scenario requires emergency preparedness plan."
+        return resp
+
+    # ── Generic / fallback — provide full summary ──
+    overall = zhstats()
+    if is_arabic:
+        resp = "## 📊 ملخص الوضع الحالي\n\n"
+        for s in overall:
+            resp += f"- {s['Icon']} **{s['DisplayName']}**: {s['CurrentValue']} {s['Unit']} — التعرض: {s['ExposurePct']:.0%} — الحالة: {s['Status']}\n"
+        resp += f"\n- 👷 عدد العمال: {workers_df['WorkerID'].nunique()}\n"
+        resp += f"- 🚨 عمال في خطر: {w_risk()}\n"
+        resp += f"- ✅ مناطق آمنة: {sz_count()}/{len(zones_df)}\n"
+        resp += f"\n💡 هل تريد تفاصيل أكثر عن منطقة أو عامل معين؟ اسألني!"
+    else:
+        resp = "## 📊 Current Status Summary\n\n"
+        for s in overall:
+            resp += f"- {s['Icon']} **{s['DisplayName']}**: {s['CurrentValue']} {s['Unit']} — Exposure: {s['ExposurePct']:.0%} — Status: {s['Status']}\n"
+        resp += f"\n- 👷 Total Workers: {workers_df['WorkerID'].nunique()}\n"
+        resp += f"- 🚨 Workers at Risk: {w_risk()}\n"
+        resp += f"- ✅ Safe Zones: {sz_count()}/{len(zones_df)}\n"
+        resp += f"\n💡 Want more details about a specific zone or worker? Just ask!"
+    return resp
+
+
 # ═══════════════ TAB: ASK ME — AI Assistant ═══════════════
 with tab_ask:
     st.markdown(f"""
@@ -1918,216 +2130,6 @@ CURRENT LIVE DATA:
             st.session_state["ask_messages"] = []
             st.rerun()
 
-
-def generate_local_answer(question, data_context, is_arabic=False):
-    """Fallback: generate an intelligent answer locally by parsing the data context.
-    Acts as ExpoInsight's built-in assistant — never mentions AI/Claude/Anthropic.
-    Only answers occupational health & ExpoInsight-related questions."""
-    q = question.lower()
-    lines = data_context.split("\n")
-
-    # ── SCOPE GUARD: reject off-topic questions ──
-    safety_keywords = ["خطر","منطقة","عامل","تعرض","حرار","ضوضاء","غاز","co2","zone","worker","hazard",
-                       "exposure","noise","heat","gas","safe","critical","warning","سيناريو","scenario",
-                       "simulation","محاكاة","اشرح","explain","نظام","system","expoinsight","حد","limit",
-                       "osha","ncosh","acgih","سلام","safety","صحة","health","sensor","حساس","تنبيه","alert",
-                       "risk","خطر","مراقب","monitor","dashboard","لوحة","report","تقرير","wbgt","حراري",
-                       "thermal","ملخص","summary","status","حالة","reading","قراء","calibrat","معاير"]
-    is_on_topic = any(kw in q for kw in safety_keywords)
-
-    if not is_on_topic:
-        if is_arabic:
-            return "عذراً، أنا متخصص فقط في الصحة المهنية وبيانات ExpoInsight. 🛡️\n\nيمكنني مساعدتك في:\n- تحليل مستويات التعرض والمخاطر\n- شرح النظام ومعادلاته\n- تحليل السيناريوهات\n- معلومات عن العمال والمناطق\n\nكيف أقدر أساعدك في تحليل السلامة؟"
-        else:
-            return "Sorry, I specialize only in occupational health and ExpoInsight data. 🛡️\n\nI can help you with:\n- Analyzing exposure levels and hazards\n- Explaining the system and its formulas\n- Scenario analysis\n- Worker and zone information\n\nHow can I help you with safety analysis?"
-
-    # Helper to find zone stats
-    def find_zone_info():
-        zone_data = {}
-        current_zone = None
-        for line in lines:
-            if line.strip().startswith("[Z0"):
-                parts = line.strip()
-                zid = parts[1:5]
-                current_zone = zid
-                zone_data[zid] = {"line": parts, "hazards": []}
-            elif current_zone and ("Exposure:" in line):
-                zone_data[current_zone]["hazards"].append(line.strip())
-        return zone_data
-
-    # ── System explanation ──
-    if any(w in q for w in ["اشرح", "explain", "شرح", "كيف يعمل", "how does", "what is expoinsight", "ما هو", "من أنت", "who are you", "what are you", "وش أنت"]):
-        if is_arabic:
-            return """## 🛡️ شرح نظام ExpoInsight
-
-أنا **مساعد ExpoInsight** — محلل الصحة المهنية المدمج في لوحة المراقبة.
-
-**ExpoInsight** هو نظام مراقبة الصحة المهنية لمحطات الطاقة في المملكة العربية السعودية.
-
-### 📊 ماذا يراقب؟
-يتابع **4 مخاطر رئيسية** في **6 مناطق** بالمحطة:
-- 💨 **ثاني أكسيد الكربون (CO₂)** — الحد: 1,000 ppm (معيار OSHA)
-- 🌡️ **مؤشر الحرارة (Heat Index)** — الحد: 40 درجة (معيار ACGIH)
-- 🔊 **الضوضاء (Noise)** — الحد: 85 ديسيبل (معيار OSHA)
-- ⚗️ **الغازات السامة (Gas)** — الحد: 25 ppm (معيار OSHA PEL)
-
-### 📐 المعادلة الأساسية
-```
-نسبة التعرض = القراءة الحالية ÷ الحد المسموح × 100%
-```
-
-### 🚦 قواعد الحالة
-- ✅ **آمن (Safe)**: أقل من 80%
-- ⚠️ **تحذير (Warning)**: من 80% إلى 99%
-- 🚨 **خطر (Critical)**: 100% أو أكثر
-
-### 📱 الصفحات
-1. **الرئيسية** — لوحة المراقبة الرئيسية بالأرقام والرسوم البيانية
-2. **نظرة عامة** — تحليل شامل مع خريطة حرارية واتجاهات
-3. **المناطق** — تفاصيل كل منطقة وحساساتها وعمالها
-4. **المحاكاة** — سيناريوهات "ماذا لو" لتقييم المخاطر المستقبلية
-5. **العمال** — متابعة تعرض كل عامل على حدة
-6. **التنبيهات** — إنذارات فورية عند تجاوز الحدود
-7. **التنفيذي** — ملخص للإدارة العليا
-8. **الإجهاد الحراري** — حسابات WBGT المتقدمة"""
-        else:
-            return """## 🛡️ ExpoInsight System Explanation
-
-I'm the **ExpoInsight Assistant** — the built-in occupational health analyst in this monitoring dashboard.
-
-**ExpoInsight** is an occupational health monitoring system for Saudi power plants.
-
-### 📊 What it monitors
-It tracks **4 hazards** across **6 facility zones**:
-- 💨 **CO₂** — Limit: 1,000 ppm (OSHA 1910.1000)
-- 🌡️ **Heat Index** — Limit: 40 (ACGIH TLV)
-- 🔊 **Noise** — Limit: 85 dBA (OSHA 1910.95)
-- ⚗️ **Gas** — Limit: 25 ppm (OSHA PEL)
-
-### 📐 Core Formula
-```
-Exposure % = Current Value ÷ Limit Value × 100%
-```
-
-### 🚦 Status Rules
-- ✅ **Safe**: Below 80%
-- ⚠️ **Warning**: 80% to 99%
-- 🚨 **Critical**: 100% or above
-
-### 📱 Dashboard Pages
-1. **HOME** — Main KPIs, charts, and zone comparison
-2. **OVERVIEW** — Heatmap, trends, and top exposed workers
-3. **ZONES** — Detailed zone analysis with sensor maps
-4. **SIMULATION** — "What if" scenarios for risk planning
-5. **WORKERS** — Individual worker exposure tracking
-6. **ALERTS** — Real-time warnings for threshold breaches
-7. **EXECUTIVE** — Management summary dashboard
-8. **HEAT STRESS** — Advanced WBGT calculations"""
-
-    # ── Most dangerous zone ──
-    if any(w in q for w in ["أخطر", "خطر", "dangerous", "worst zone", "critical zone", "most dangerous"]):
-        zone_data = find_zone_info()
-        # Find zones with Critical status
-        critical_zones = []
-        warning_zones = []
-        for line in lines:
-            if "Overall: Critical" in line:
-                critical_zones.append(line.strip())
-            elif "Overall: Warning" in line:
-                warning_zones.append(line.strip())
-
-        if is_arabic:
-            resp = "## 🚨 تحليل أخطر المناطق\n\n"
-            if critical_zones:
-                resp += "### المناطق الحرجة (Critical):\n"
-                for cz in critical_zones:
-                    resp += f"- 🔴 {cz}\n"
-            if warning_zones:
-                resp += "\n### مناطق التحذير (Warning):\n"
-                for wz in warning_zones:
-                    resp += f"- 🟡 {wz}\n"
-            if not critical_zones and not warning_zones:
-                resp += "✅ جميع المناطق آمنة حالياً!"
-            resp += "\n\n💡 **التوصية**: التركيز على المناطق الحرجة وتقليل وقت تواجد العمال فيها."
-        else:
-            resp = "## 🚨 Most Dangerous Zones Analysis\n\n"
-            if critical_zones:
-                resp += "### Critical Zones:\n"
-                for cz in critical_zones:
-                    resp += f"- 🔴 {cz}\n"
-            if warning_zones:
-                resp += "\n### Warning Zones:\n"
-                for wz in warning_zones:
-                    resp += f"- 🟡 {wz}\n"
-            if not critical_zones and not warning_zones:
-                resp += "✅ All zones are currently Safe!"
-            resp += "\n\n💡 **Recommendation**: Focus on critical zones and minimize worker presence."
-        return resp
-
-    # ── Workers at risk ──
-    if any(w in q for w in ["عمال", "معرض", "workers", "risk", "at risk", "خطر"]):
-        worker_lines = [l for l in lines if l.strip().startswith("W0")]
-        risk_count = w_risk()
-        if is_arabic:
-            resp = f"## 👷 تحليل العمال المعرضين للخطر\n\n"
-            resp += f"**عدد العمال المعرضين للخطر: {risk_count}**\n\n"
-            resp += "هؤلاء هم العمال المتواجدون في مناطق حالتها Critical:\n\n"
-            for wl in worker_lines[:10]:
-                resp += f"- {wl.strip()}\n"
-            resp += "\n💡 **التوصية**: إخلاء العمال من المناطق الحرجة أو توفير معدات حماية إضافية."
-        else:
-            resp = f"## 👷 Workers at Risk Analysis\n\n"
-            resp += f"**Workers at Risk: {risk_count}**\n\n"
-            resp += "Workers currently present in Critical zones:\n\n"
-            for wl in worker_lines[:10]:
-                resp += f"- {wl.strip()}\n"
-            resp += "\n💡 **Recommendation**: Evacuate workers from critical zones or provide additional PPE."
-        return resp
-
-    # ── Simulation / Scenario ──
-    if any(w in q for w in ["سيناريو", "محاكاة", "scenario", "simulation", "worst case", "increased", "new equipment"]):
-        sim_section = False
-        sim_lines = []
-        for line in lines:
-            if "=== SIMULATION" in line:
-                sim_section = True
-                continue
-            if sim_section:
-                if line.strip():
-                    sim_lines.append(line.strip())
-        if is_arabic:
-            resp = "## 🔬 تحليل السيناريوهات\n\n"
-            resp += "السيناريوهات المتاحة في النظام:\n\n"
-            for sl in sim_lines[:20]:
-                resp += f"- {sl}\n"
-            resp += "\n💡 **التوصية**: سيناريو Worst Case يحتاج خطة طوارئ جاهزة."
-        else:
-            resp = "## 🔬 Scenario Analysis\n\n"
-            resp += "Available simulation scenarios:\n\n"
-            for sl in sim_lines[:20]:
-                resp += f"- {sl}\n"
-            resp += "\n💡 **Recommendation**: Worst Case scenario requires emergency preparedness plan."
-        return resp
-
-    # ── Generic / fallback — provide full summary ──
-    overall = zhstats()
-    if is_arabic:
-        resp = "## 📊 ملخص الوضع الحالي\n\n"
-        for s in overall:
-            resp += f"- {s['Icon']} **{s['DisplayName']}**: {s['CurrentValue']} {s['Unit']} — التعرض: {s['ExposurePct']:.0%} — الحالة: {s['Status']}\n"
-        resp += f"\n- 👷 عدد العمال: {workers_df['WorkerID'].nunique()}\n"
-        resp += f"- 🚨 عمال في خطر: {w_risk()}\n"
-        resp += f"- ✅ مناطق آمنة: {sz_count()}/{len(zones_df)}\n"
-        resp += f"\n💡 هل تريد تفاصيل أكثر عن منطقة أو عامل معين؟ اسألني!"
-    else:
-        resp = "## 📊 Current Status Summary\n\n"
-        for s in overall:
-            resp += f"- {s['Icon']} **{s['DisplayName']}**: {s['CurrentValue']} {s['Unit']} — Exposure: {s['ExposurePct']:.0%} — Status: {s['Status']}\n"
-        resp += f"\n- 👷 Total Workers: {workers_df['WorkerID'].nunique()}\n"
-        resp += f"- 🚨 Workers at Risk: {w_risk()}\n"
-        resp += f"- ✅ Safe Zones: {sz_count()}/{len(zones_df)}\n"
-        resp += f"\n💡 Want more details about a specific zone or worker? Just ask!"
-    return resp
 
 
 # ═══════════════ EXPORT + FOOTER ═══════════════
