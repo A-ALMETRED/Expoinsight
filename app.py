@@ -208,8 +208,9 @@ HO=["CO2","HeatIndex","Noise","Gas"]
 HC={"CO2":"#1565C0","HeatIndex":"#E65100","Noise":"#6A1B9A","Gas":"#2E7D32"}
 PL=dict(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font=dict(family="Inter,sans-serif",color=C["text2"],size=12),margin=dict(l=50,r=20,t=40,b=50))
 
-def cexp(v,l): return v/l if l else 0
+def cexp(v,l): return float(v/l) if l else 0.0
 def gstat(e):
+    e = float(e) if e is not None else 0.0
     if e<0.8: return "Safe"
     if e<1.0: return "Warning"
     return "Critical"
