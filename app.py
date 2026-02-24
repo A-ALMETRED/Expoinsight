@@ -458,7 +458,7 @@ with tab1:
         with cols[i]: st.markdown(rkpi(s["Icon"],s["DisplayName"],s["CurrentValue"],s["Unit"],s["ExposurePct"],s["Status"],szid,s["HazardType"]),unsafe_allow_html=True)
     st.markdown("<div style='height:20px'></div>",unsafe_allow_html=True)
 
-    c1,c2=st.columns([4,6])
+    c1,c2=st.columns([5,5])
     with c1:
         st.markdown(f'<div class="panel"><div class="panel-title">{"📋 مستويات التعرض الحالية" if AR else "📋 Current Exposure Levels"}</div>',unsafe_allow_html=True)
         h='<table class="styled-table"><tr><th>Hazard</th><th>Current</th><th>Limit</th><th>Exposure</th><th>Status</th></tr>'
@@ -468,27 +468,25 @@ with tab1:
         h+='</table></div>'
         st.markdown(h,unsafe_allow_html=True)
     with c2:
-        st.markdown(f'<div class="panel"><div class="panel-title">{"📊 التعرض حسب المنطقة" if AR else "📊 Exposure by Zone"}</div>',unsafe_allow_html=True)
-        ze=[{"Zone":z["ZoneName"],"Exp":max(s["ExposurePct"] for s in zhstats(z["ZoneID"]))*100} for _,z in zones_df.iterrows()]
-        zdf=pd.DataFrame(ze)
-        colors=["#C62828" if v>=100 else "#F9A825" if v>=80 else "#2E7D32" for v in zdf["Exp"]]
-        fig=go.Figure()
-        fig.add_trace(go.Bar(x=zdf["Zone"],y=zdf["Exp"],marker_color=colors,text=[f"{v:.0f}%" for v in zdf["Exp"]],textposition="outside",textfont=dict(size=12,color=C["text2"])))
-        fig.add_hline(y=100,line_dash="dash",line_color="#C62828",line_width=2,annotation_text="⚠️ Limit",annotation_position="top right",annotation_font=dict(color="#C62828",size=11))
-        fig.update_layout(**PL,height=380,showlegend=False,yaxis=dict(title="Exposure %",gridcolor=C["grid"],range=[0,max(zdf["Exp"].max()*1.2,130)]),xaxis=dict(tickangle=-25))
-        st.plotly_chart(fig,use_container_width=True)
-        st.markdown("</div>",unsafe_allow_html=True)
-
-    # Risk Distribution
-    rd1,rd2=st.columns([6,4])
-    with rd2:
         st.markdown(f'<div class="panel"><div class="panel-title">{"◉ توزيع المخاطر" if AR else "◉ Risk Distribution"}</div>',unsafe_allow_html=True)
         scc={"Safe":0,"Warning":0,"Critical":0}
         for _,z in zones_df.iterrows(): scc[zoverall(z["ZoneID"])]+=1
         fig=go.Figure(data=[go.Pie(labels=list(scc.keys()),values=list(scc.values()),hole=0.6,marker_colors=[C["safe"],C["warn"],C["crit"]],textinfo="label+value",textfont=dict(size=13,color="#FFF"),pull=[0,0,0.05])])
-        fig.update_layout(**PL,height=380,showlegend=False,annotations=[dict(text="<b>Risk</b>",x=.5,y=.5,font_size=18,font_color=C["text1"],showarrow=False)])
+        fig.update_layout(**PL,height=320,showlegend=False,annotations=[dict(text="<b>Risk</b>",x=.5,y=.5,font_size=18,font_color=C["text1"],showarrow=False)])
         st.plotly_chart(fig,use_container_width=True)
         st.markdown("</div>",unsafe_allow_html=True)
+
+    # Exposure by Zone - full width
+    st.markdown(f'<div class="panel"><div class="panel-title">{"📊 التعرض حسب المنطقة" if AR else "📊 Exposure by Zone"}</div>',unsafe_allow_html=True)
+    ze=[{"Zone":z["ZoneName"],"Exp":max(s["ExposurePct"] for s in zhstats(z["ZoneID"]))*100} for _,z in zones_df.iterrows()]
+    zdf=pd.DataFrame(ze)
+    colors=["#C62828" if v>=100 else "#F9A825" if v>=80 else "#2E7D32" for v in zdf["Exp"]]
+    fig=go.Figure()
+    fig.add_trace(go.Bar(x=zdf["Zone"],y=zdf["Exp"],marker_color=colors,text=[f"{v:.0f}%" for v in zdf["Exp"]],textposition="outside",textfont=dict(size=12,color=C["text2"])))
+    fig.add_hline(y=100,line_dash="dash",line_color="#C62828",line_width=2,annotation_text="⚠️ Limit",annotation_position="top right",annotation_font=dict(color="#C62828",size=11))
+    fig.update_layout(**PL,height=350,showlegend=False,yaxis=dict(title="Exposure %",gridcolor=C["grid"],range=[0,max(zdf["Exp"].max()*1.2,130)]),xaxis=dict(tickangle=-15))
+    st.plotly_chart(fig,use_container_width=True)
+    st.markdown("</div>",unsafe_allow_html=True)
 
     # INDOOR CLIMATE BAR
     st.markdown(f'<div class="panel"><div class="panel-title">{"🌡️ المناخ الداخلي" if AR else "🌡️ Indoor Climate"}</div>',unsafe_allow_html=True)
