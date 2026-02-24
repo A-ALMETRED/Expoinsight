@@ -33,9 +33,10 @@ st.markdown(f"""
 #MainMenu,header,footer,.stDeployButton,div[data-testid="stToolbar"],div[data-testid="stDecoration"]{{display:none!important;visibility:hidden!important}}
 html,body,.stApp{{font-family:'Inter',-apple-system,sans-serif!important;background:linear-gradient(160deg,{C["bg"]},{C["bg2"]})!important;color:#E0E0E0!important}}
 .main .block-container{{padding-top:0;padding-bottom:1rem;max-width:100%}}
-.stApp p,.stApp span,.stApp div,.stApp label,.stMarkdown p,.stMarkdown span,.stMarkdown div,
+.stApp p,.stApp label,.stMarkdown p,.stMarkdown span,
 [data-testid="stMarkdownContainer"] p,[data-testid="stMarkdownContainer"] span,
-[data-testid="stMarkdownContainer"] div,[data-testid="stMarkdownContainer"] strong{{font-family:'Inter',sans-serif!important;color:#E0E0E0!important}}
+[data-testid="stMarkdownContainer"] strong{{font-family:'Inter',sans-serif!important;color:#E0E0E0!important}}
+[data-testid="stMarkdownContainer"] div{{font-family:'Inter',sans-serif!important}}
 
 div[data-testid="stRadio"]>label{{display:none!important}}
 div[data-testid="stRadio"]>div>label>div:first-child{{display:none!important}}
@@ -381,6 +382,10 @@ st.markdown(f'''
         <div style="color:#4FC3F7;font-size:15px;font-weight:900;letter-spacing:1px">Power Plant 0</div>
         <div style="color:rgba(255,255,255,0.5);font-size:11px;font-weight:500">📍 Saudi Arabia — Riyadh</div>
     </div>
+    <div style="display:flex;flex-direction:column;align-items:center;padding:8px 16px">
+        <div style="color:rgba(255,255,255,0.8);font-size:13px;font-weight:600">{wx_icon} {wx_txt}</div>
+        <div style="color:rgba(255,255,255,0.4);font-size:11px">🕐 {datetime.now().strftime("%H:%M:%S")} (Riyadh) &nbsp;·&nbsp; {datetime.now().strftime("%A, %d %B %Y")}</div>
+    </div>
     <div class="nav-right"><div class="live-dot"></div><span class="live-txt">LIVE MONITORING</span></div>
 </div>''', unsafe_allow_html=True)
 
@@ -391,7 +396,7 @@ if crit_z_names:
 # Global language toggle
 lc1, lc2 = st.columns([10,2])
 with lc1:
-    st.markdown(f'<div style="color:{C["text1"]};font-size:13px;margin-bottom:4px">🔄 Auto-refresh: 30s &nbsp;|&nbsp; 🕐 {datetime.now().strftime("%H:%M:%S")} (Riyadh) &nbsp;|&nbsp; 📅 {datetime.now().strftime("%A, %d %B %Y")}</div>',unsafe_allow_html=True)
+    st.markdown(f'<div style="color:{C["text3"]};font-size:12px;margin-bottom:4px">🔄 Auto-refresh: 30s &nbsp;|&nbsp; 📡 {datetime.now().strftime("%H:%M:%S")}</div>',unsafe_allow_html=True)
 with lc2:
     LANG = st.selectbox("🌐", ["English", "العربية"], key="global_lang", label_visibility="collapsed")
 AR = LANG == "العربية"
