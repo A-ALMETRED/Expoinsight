@@ -458,7 +458,7 @@ with tab1:
         with cols[i]: st.markdown(rkpi(s["Icon"],s["DisplayName"],s["CurrentValue"],s["Unit"],s["ExposurePct"],s["Status"],szid,s["HazardType"]),unsafe_allow_html=True)
     st.markdown("<div style='height:20px'></div>",unsafe_allow_html=True)
 
-    c1,c2,c3=st.columns([3,4,3])
+    c1,c2=st.columns([4,6])
     with c1:
         st.markdown(f'<div class="panel"><div class="panel-title">{"📋 مستويات التعرض الحالية" if AR else "📋 Current Exposure Levels"}</div>',unsafe_allow_html=True)
         h='<table class="styled-table"><tr><th>Hazard</th><th>Current</th><th>Limit</th><th>Exposure</th><th>Status</th></tr>'
@@ -478,7 +478,10 @@ with tab1:
         fig.update_layout(**PL,height=380,showlegend=False,yaxis=dict(title="Exposure %",gridcolor=C["grid"],range=[0,max(zdf["Exp"].max()*1.2,130)]),xaxis=dict(tickangle=-25))
         st.plotly_chart(fig,use_container_width=True)
         st.markdown("</div>",unsafe_allow_html=True)
-    with c3:
+
+    # Risk Distribution
+    rd1,rd2=st.columns([6,4])
+    with rd2:
         st.markdown(f'<div class="panel"><div class="panel-title">{"◉ توزيع المخاطر" if AR else "◉ Risk Distribution"}</div>',unsafe_allow_html=True)
         scc={"Safe":0,"Warning":0,"Critical":0}
         for _,z in zones_df.iterrows(): scc[zoverall(z["ZoneID"])]+=1
@@ -729,13 +732,11 @@ with tab4:
                 return round(combined, 1)
 
             elif hazard_type == "HeatIndex":
-                # Heat: take the maximum (dominant source) + small additive factor
-                # In reality, heat index is affected by the hottest source primarily
-                # Adding a small contribution: max + 10% of the difference
-                if equip_val > current_val:
-                    combined = equip_val + (current_val * 0.1)
-                else:
-                    combined = current_val + (equip_val * 0.1)
+                # Radiation model: ΔT = (T_equip - T_zone) × 0.08
+                # Equipment radiates heat but doesn't raise the whole zone to its temperature
+                # 0.08 = tunable thermal impact factor for industrial equipment in open area
+                delta_t = (equip_val - current_val) * 0.08
+                combined = current_val + delta_t
                 return round(combined, 1)
 
             elif hazard_type in ["CO2", "Gas"]:
