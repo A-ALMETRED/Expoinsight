@@ -1855,7 +1855,15 @@ Calculated from **Temperature + Humidity** using the official Rothfusz regressio
 - **ACGIH TLV** — Heat Index: 40"""
 
     # ── System explanation ──
-    if any(w in q for w in ["اشرح", "explain", "شرح", "كيف يعمل", "how does", "what is expoinsight", "ما هو", "من أنت", "who are you", "what are you", "وش أنت"]):
+    # Only match if asking about the system itself, not "ما هو الحد..." type questions
+    system_words = ["اشرح", "explain", "شرح", "كيف يعمل", "how does", "what is expoinsight", "من أنت", "who are you", "what are you", "وش أنت"]
+    is_system_q = any(w in q for w in system_words)
+    # "ما هو" only if NOT followed by specific hazard/limit terms
+    if not is_system_q and ("ما هو" in q or "ما هي" in q):
+        specific_terms = ["حد", "limit", "ضوضاء", "noise", "حرار", "heat", "غاز", "gas", "co2", "تعرض", "exposure", "منطقة", "zone", "عامل", "worker"]
+        if not any(t in q for t in specific_terms):
+            is_system_q = True
+    if is_system_q:
         if is_arabic:
             return """## 🛡️ شرح نظام ExpoInsight
 
@@ -1922,6 +1930,80 @@ Exposure % = Current Value ÷ Limit Value × 100%
 6. **ALERTS** — Real-time warnings for threshold breaches
 7. **EXECUTIVE** — Management summary dashboard
 8. **HEAT STRESS** — Advanced WBGT calculations"""
+
+    # ── Exposure limits question ──
+    if any(w in q for w in ["حد", "limit", "مسموح", "permissible", "حدود", "معيار", "standard", "pel", "tlv"]):
+        # Find which hazard they're asking about
+        hazard_match = None
+        if any(w in q for w in ["ضوضاء", "noise", "صوت", "dba", "ديسيبل"]):
+            hazard_match = "noise"
+        elif any(w in q for w in ["حرار", "heat", "wbgt", "حراري"]):
+            hazard_match = "heat"
+        elif any(w in q for w in ["غاز", "gas", "h2s", "سام"]):
+            hazard_match = "gas"
+        elif any(w in q for w in ["co2", "كربون", "ثاني أكسيد"]):
+            hazard_match = "co2"
+
+        # Parse limits from data context
+        limits_info = {}
+        for line in lines:
+            if "HazardType" not in line and (":" in line) and any(h in line for h in ["CO2", "HeatIndex", "Noise", "Gas"]):
+                limits_info[line.strip()] = line.strip()
+
+        if hazard_match:
+            limits_map = {
+                "noise": ("الضوضاء (Noise)", "85 dBA", "OSHA 1910.95", "8 ساعات عمل يومياً. كل زيادة 5 dBA تنصّف الوقت المسموح (90 dBA = 4 ساعات، 95 dBA = 2 ساعة)."),
+                "heat": ("مؤشر الحرارة (Heat Index)", "40", "ACGIH TLV", "يعتمد على الحرارة والرطوبة معاً. فوق 40 يتطلب فترات راحة وتقليل ساعات التعرض."),
+                "gas": ("الغازات السامة — H₂S (Gas)", "25 ppm", "OSHA PEL", "التعرض لتركيز أعلى من 25 ppm لفترة طويلة خطر. فوق 100 ppm يهدد الحياة."),
+                "co2": ("ثاني أكسيد الكربون (CO₂)", "1,000 ppm", "OSHA 1910.1000", "الحد للتعرض 8 ساعات. فوق 5,000 ppm يعتبر خطر فوري (IDLH)."),
+            }
+            info = limits_map[hazard_match]
+            if is_arabic:
+                return f"""## 📋 الحد المسموح — {info[0]}
+
+| البند | القيمة |
+|-------|--------|
+| **الحد المسموح (PEL/TLV)** | {info[1]} |
+| **المعيار المرجعي** | {info[2]} |
+
+### 📝 ملاحظات:
+{info[3]}
+
+### 🚦 في ExpoInsight:
+- ✅ **آمن**: أقل من 80% من الحد
+- ⚠️ **تحذير**: 80% إلى 99%
+- 🚨 **خطر**: 100% أو أكثر"""
+            else:
+                return f"""## 📋 Permissible Limit — {info[0]}
+
+| Item | Value |
+|------|-------|
+| **Limit (PEL/TLV)** | {info[1]} |
+| **Standard** | {info[2]} |
+
+### 📝 Notes:
+{info[3]}"""
+        else:
+            if is_arabic:
+                return """## 📋 الحدود المسموحة في ExpoInsight
+
+| الخطر | الحد | المعيار |
+|-------|------|---------|
+| 💨 CO₂ | 1,000 ppm | OSHA 1910.1000 |
+| 🌡️ مؤشر الحرارة | 40 | ACGIH TLV |
+| 🔊 الضوضاء | 85 dBA | OSHA 1910.95 |
+| ⚗️ الغازات (H₂S) | 25 ppm | OSHA PEL |
+
+💡 نسبة التعرض = القراءة الحالية ÷ الحد × 100%"""
+            else:
+                return """## 📋 ExpoInsight Exposure Limits
+
+| Hazard | Limit | Standard |
+|--------|-------|----------|
+| 💨 CO₂ | 1,000 ppm | OSHA 1910.1000 |
+| 🌡️ Heat Index | 40 | ACGIH TLV |
+| 🔊 Noise | 85 dBA | OSHA 1910.95 |
+| ⚗️ Gas (H₂S) | 25 ppm | OSHA PEL |"""
 
     # ── Most dangerous zone ──
     if any(w in q for w in ["أخطر", "خطر", "dangerous", "worst zone", "critical zone", "most dangerous"]):
@@ -2178,38 +2260,45 @@ with tab_ask:
             with st.spinner("🔍 جاري التحليل..." if AR else "🔍 Analyzing..."):
                 data_context = build_data_context()
 
-                system_prompt = f"""أنت "مساعد ExpoInsight" — محلل متخصص في الصحة المهنية والسلامة، مدمج داخل لوحة مراقبة ExpoInsight لمحطات الطاقة في المملكة العربية السعودية.
+                system_prompt = f"""أنت "مساعد ExpoInsight" — خبير متخصص في الصحة المهنية والسلامة وصحة بيئة العمل (OHS/HSE)، مدمج داخل لوحة مراقبة ExpoInsight لمحطات الطاقة في المملكة العربية السعودية.
 
 IDENTITY RULES (CRITICAL — NEVER BREAK THESE):
 - You are "ExpoInsight Assistant" / "مساعد ExpoInsight". That is your ONLY identity.
 - NEVER mention Claude, Anthropic, AI model, language model, LLM, GPT, or any AI technology.
 - NEVER say "I am an AI" or "I am a language model" or anything similar.
-- If asked "who are you?" or "what are you?", say: "أنا مساعد ExpoInsight — نظام تحليل الصحة المهنية المدمج في لوحة المراقبة" (or English equivalent).
-- If asked who made you, say: "أنا جزء من نظام ExpoInsight لمراقبة الصحة المهنية" — do NOT mention Anthropic or Claude.
-- You are a BUILT-IN feature of the ExpoInsight dashboard, like a calculator or report generator.
+- If asked "who are you?", say: "أنا مساعد ExpoInsight — نظام تحليل الصحة المهنية المدمج في لوحة المراقبة"
+- If asked who made you, say: "أنا جزء من نظام ExpoInsight لمراقبة الصحة المهنية"
+- You are a BUILT-IN feature of the ExpoInsight dashboard.
 
-SCOPE RULES (CRITICAL):
-- ONLY answer questions related to: occupational health, safety, the dashboard data, zones, workers, hazards, exposure, simulations, regulatory standards (OSHA, ACGIH, NCOSH), Saudi workplace safety.
-- If asked about ANYTHING outside this scope (cooking, sports, politics, coding, personal advice, weather, etc.), politely decline:
-  Arabic: "عذراً، أنا متخصص فقط في الصحة المهنية وبيانات ExpoInsight. كيف أقدر أساعدك في تحليل السلامة؟"
-  English: "Sorry, I only handle occupational health and ExpoInsight data. How can I help you with safety analysis?"
-- Do NOT try to be helpful with off-topic questions. Just redirect to your scope.
+SCOPE RULES:
+- You answer ANY question related to: occupational health, industrial safety, workplace hygiene, environmental health, HSE, industrial hygiene, toxicology, ergonomics, PPE, hazard identification, risk assessment, incident investigation, regulatory standards (OSHA, ACGIH, NCOSH, NIOSH, ISO 45001), Saudi workplace safety regulations, chemical safety, heat stress, noise exposure, radiation, confined spaces, fall protection, fire safety, electrical safety, machine guarding, ventilation, respiratory protection, medical surveillance, epidemiology of occupational diseases, and ALL related topics.
+- You also answer questions about the ExpoInsight dashboard data, zones, workers, hazards, exposure readings, simulations, and compliance analysis.
+- If asked about ANYTHING clearly outside HSE/OHS scope (cooking, sports, politics, coding, entertainment, personal advice, etc.), politely decline:
+  Arabic: "عذراً، تخصصي هو الصحة المهنية والسلامة وصحة بيئة العمل. كيف أقدر أساعدك في هذا المجال؟"
+  English: "Sorry, I specialize in occupational health, safety, and environmental health. How can I help you in this field?"
+
+RESPONSE STYLE (CRITICAL):
+- If the user writes in Arabic, respond FULLY in Arabic. If English, respond in English.
+- Give DETAILED, COMPREHENSIVE answers — not just one or two lines.
+- Structure your answers with headers (##), bullet points, tables when helpful.
+- Use emoji for visual clarity (🔊 💨 🌡️ ⚗️ ✅ ⚠️ 🚨 📋 💡).
+- Include relevant regulatory references (OSHA standards, ACGIH TLVs, NCOSH requirements).
+- Always provide practical recommendations and actionable advice.
+- When discussing hazards, explain: what it is, health effects, exposure limits, control measures, and monitoring requirements.
+- For dashboard data questions, use the CURRENT LIVE DATA below and show specific numbers.
+- For scenarios, show before/after comparisons with clear impact analysis.
+- Aim for answers that are 200-500 words — thorough but focused.
 
 CAPABILITIES:
-1. Answer questions about current hazard readings, exposure levels, and zone statuses
-2. Explain how the ExpoInsight system works (formulas, thresholds, regulatory standards)
-3. Analyze simulation scenarios and predict impacts
-4. Identify workers at risk and recommend actions
-5. Provide safety recommendations based on OSHA, ACGIH, and Saudi NCOSH standards
-6. Compare zones, identify trends, and flag concerns
-
-RESPONSE STYLE:
-- If the user writes in Arabic, respond in Arabic. If English, respond in English.
-- Be concise but thorough
-- Use numbers and data from the context provided below
-- Use emoji for visual clarity
-- For scenarios, show before/after comparisons
-- Always provide actionable recommendations when relevant
+1. Answer ANY occupational health & safety question with expert-level detail
+2. Analyze current hazard readings, exposure levels, and zone statuses from live data
+3. Explain ExpoInsight system formulas, thresholds, and regulatory standards
+4. Analyze simulation scenarios and predict impacts
+5. Identify workers at risk and recommend protective actions
+6. Provide safety recommendations based on OSHA, ACGIH, NIOSH, and Saudi NCOSH
+7. Explain control hierarchy (elimination → substitution → engineering → administrative → PPE)
+8. Discuss occupational diseases, their causes, prevention, and medical surveillance
+9. Advise on emergency response procedures and incident investigation
 
 CURRENT LIVE DATA:
 {data_context}
@@ -2228,7 +2317,7 @@ CURRENT LIVE DATA:
 
                     request_body = json.dumps({
                         "model": "claude-sonnet-4-20250514",
-                        "max_tokens": 2000,
+                        "max_tokens": 4000,
                         "system": system_prompt,
                         "messages": api_messages,
                     }).encode("utf-8")
@@ -2238,11 +2327,13 @@ CURRENT LIVE DATA:
                         data=request_body,
                         headers={
                             "Content-Type": "application/json",
+                            "x-api-key": st.secrets.get("ANTHROPIC_API_KEY", ""),
+                            "anthropic-version": "2023-06-01",
                         },
                         method="POST",
                     )
 
-                    with urllib.request.urlopen(req, timeout=30) as resp:
+                    with urllib.request.urlopen(req, timeout=60) as resp:
                         result = json.loads(resp.read().decode("utf-8"))
 
                     # Extract text from response
@@ -2254,9 +2345,13 @@ CURRENT LIVE DATA:
                     if not answer:
                         answer = "⚠️ لم أتمكن من إنشاء رد. حاول مرة أخرى." if AR else "⚠️ Could not generate a response. Please try again."
 
+                except urllib.error.HTTPError as he:
+                    error_body = he.read().decode("utf-8", errors="ignore")
+                    answer = f"⚠️ خطأ في الاتصال بالمساعد الذكي (HTTP {he.code}):\n```\n{error_body[:300]}\n```\nتأكد من صحة API Key في Secrets." if AR else f"⚠️ API Error (HTTP {he.code}):\n```\n{error_body[:300]}\n```\nCheck your API Key in Secrets."
+
                 except Exception as e:
-                    # Fallback: generate answer locally from data
-                    answer = generate_local_answer(user_q, data_context, AR)
+                    answer = f"⚠️ خطأ: {str(e)[:200]}\n\nجاري الرد من قاعدة المعرفة المحلية..." if AR else f"⚠️ Error: {str(e)[:200]}\n\nFalling back to local knowledge base..."
+                    answer += "\n\n---\n\n" + generate_local_answer(user_q, data_context, AR)
 
                 st.markdown(answer)
                 st.session_state["ask_messages"].append({"role": "assistant", "content": answer})
