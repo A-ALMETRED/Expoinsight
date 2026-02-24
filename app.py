@@ -227,12 +227,12 @@ def zhstats(zone_id=None):
     res=[]
     for h in HO:
         hdf=df[df["HazardType"]==h]
-        c=hdf["MeasuredValue"].mean() if len(hdf)>0 else 0
-        if pd.isna(c): c=0
-        l=ld.get(h,1) if isinstance(ld,dict) else 1
-        u=ud.get(h,"") if isinstance(ud,dict) else ""
+        c=float(hdf["MeasuredValue"].mean()) if len(hdf)>0 else 0.0
+        if pd.isna(c): c=0.0
+        l=float(ld.get(h,1)) if isinstance(ld,dict) else 1.0
+        u=str(ud.get(h,"")) if isinstance(ud,dict) else ""
         e=cexp(c,l)
-        res.append({"HazardType":h,"DisplayName":HD.get(h,h),"Icon":HI.get(h,"📊"),"CurrentValue":round(c,1),"Limit":l,"Unit":u,"ExposurePct":e,"Status":gstat(e)})
+        res.append({"HazardType":h,"DisplayName":HD.get(h,h),"Icon":HI.get(h,""),"CurrentValue":round(c,1),"Limit":l,"Unit":u,"ExposurePct":e,"Status":gstat(e)})
     return res
 def get_sparkline(zone_id,hazard,n=8):
     df=readings_df[readings_df["HazardType"]==hazard]
@@ -1711,20 +1711,26 @@ with tab_ask:
         lines.append("")
 
         lines.append("=== OVERALL EXPOSURE (ALL ZONES AVERAGE) ===")
-        overall = zhstats()
-        for s in overall:
-            lines.append(f"  {s['Icon']} {s['DisplayName']}: {s['CurrentValue']} {s['Unit']} | Limit: {s['Limit']} | Exposure: {s['ExposurePct']:.1%} | Status: {s['Status']}")
+        try:
+            overall = zhstats()
+            for s in overall:
+                lines.append(f"  {s['DisplayName']}: {s['CurrentValue']} {s['Unit']} | Limit: {s['Limit']} | Exposure: {s['ExposurePct']:.1%} | Status: {s['Status']}")
+        except Exception:
+            lines.append("  (Data unavailable)")
         lines.append(f"  Workers at Risk: {w_risk()}")
         lines.append(f"  Safe Zones: {sz_count()}/{len(zones_df)}")
         lines.append("")
 
         lines.append("=== ZONE-BY-ZONE BREAKDOWN ===")
         for _,z in zones_df.iterrows():
-            zs = zhstats(z["ZoneID"])
-            ov = zoverall(z["ZoneID"])
-            lines.append(f"\n  [{z['ZoneID']}] {z['ZoneName']} ({z['ZoneType']}, Capacity: {z['Capacity']}) — Overall: {ov}")
-            for s in zs:
-                lines.append(f"    {s['Icon']} {s['DisplayName']}: {s['CurrentValue']} {s['Unit']} → Exposure: {s['ExposurePct']:.1%} ({s['Status']})")
+            try:
+                zs = zhstats(z["ZoneID"])
+                ov = zoverall(z["ZoneID"])
+                lines.append(f"\n  [{z['ZoneID']}] {z['ZoneName']} ({z['ZoneType']}, Capacity: {z['Capacity']}) — Overall: {ov}")
+                for s in zs:
+                    lines.append(f"    {s['DisplayName']}: {s['CurrentValue']} {s['Unit']} → Exposure: {s['ExposurePct']:.1%} ({s['Status']})")
+            except Exception:
+                lines.append(f"\n  [{z['ZoneID']}] {z['ZoneName']} — (data error)")
             # Workers in this zone
             zw = presence_df[presence_df["ZoneID"]==z["ZoneID"]].merge(workers_df, on="WorkerID", how="left")
             if len(zw) > 0:
@@ -1761,7 +1767,7 @@ with tab_ask:
                     exp_after = cexp(proj, lim)
                     lines.append(f"    {zn} / {r['HazardType']}: Δ{r['DeltaValue']:+g} → Before: {curr:.1f} ({exp_before:.0%}) → After: {proj:.1f} ({exp_after:.0%}) [{gstat(exp_after)}]")
 
-        return "\n".join(lines)
+            return "\n".join(lines)
 
     # ── Quick-action buttons ──
     st.markdown(f"<div style='margin:12px 0 8px;color:{C['text2']};font-size:13px;font-weight:600'>{'💡 أسئلة سريعة:' if AR else '💡 Quick Questions:'}</div>", unsafe_allow_html=True)
